@@ -78,6 +78,9 @@ object Bants {
     val outbox = MutableStateFlow<List<OutboxItem>>(emptyList())
     val stickers = MutableStateFlow<List<Sticker>>(emptyList())
     val gifsAvailable = MutableStateFlow(false)
+
+    /** How far each outgoing photo/video/file has uploaded (0–1), by client id. */
+    val uploadProgress = MutableStateFlow<Map<String, Float>>(emptyMap())
     val connected: StateFlow<Boolean> get() = realtime.connected
 
     /** Short messages for the user (shown as toasts). */
@@ -465,7 +468,7 @@ object Bants {
 
     fun newOutboxFile(extension: String): File = File(store.outboxDir, "${UUID.randomUUID()}.$extension")
 
-    private fun prepareMedia(convId: Long, uri: Uri, replyTo: Long?): OutboxItem? {
+    private suspend fun prepareMedia(convId: Long, uri: Uri, replyTo: Long?): OutboxItem? {
         val resolver = appContext.contentResolver
         val mime = resolver.getType(uri) ?: "application/octet-stream"
         var name = "file"
@@ -477,7 +480,12 @@ object Bants {
             }
         }
         val isPhoto = mime.startsWith("image/") && mime != "image/gif"
-        if (!isPhoto && size > maxUploadBytes) {
+        val isVideo = mime.startsWith("video/")
+        val photoQ = com.wellsey.bants.media.MediaQuality.resolve(appContext, com.wellsey.bants.media.Quality.of(session.photoQuality))
+        val videoQ = com.wellsey.bants.media.MediaQuality.resolve(appContext, com.wellsey.bants.media.Quality.of(session.videoQuality))
+        val photoSide = if (isPhoto) com.wellsey.bants.media.MediaQuality.photoMaxSide(photoQ) else null
+        val videoSide = if (isVideo) com.wellsey.bants.media.MediaQuality.videoShortSide(videoQ) else null
+        if (photoSide == null && videoSide == null && size > maxUploadBytes) {
             notices.tryEmit("That's too big to send (max ${maxUploadBytes / (1024 * 1024)} MB)")
             return null
         }
@@ -488,11 +496,29 @@ object Bants {
             else -> "file"
         }
         val base = newItem(convId, kind, replyTo)
-        return if (isPhoto) {
-            val (bytes, jpeg) = compressImage(uri)
+        if (photoSide != null) {
+            val (bytes, jpeg) = compressImage(uri, maxSide = photoSide, quality = if (photoSide > 2048) 92 else 85)
             val f = newOutboxFile("jpg").apply { writeBytes(bytes) }
-            base.copy(file = f.absolutePath, mime = jpeg, filename = name.substringBeforeLast('.') + ".jpg")
-        } else {
+            return base.copy(file = f.absolutePath, mime = jpeg, filename = name.substringBeforeLast('.') + ".jpg")
+        }
+        if (videoSide != null) {
+            notices.tryEmit("Getting your video ready…")
+            val target = newOutboxFile("mp4")
+            val shrunk = runCatching {
+                com.wellsey.bants.media.MediaQuality.shrinkVideo(appContext, uri, videoSide, target)
+            }.getOrNull()
+            if (shrunk == null) target.delete()
+            if (shrunk != null && shrunk.length() > 0 && (size <= 0 || shrunk.length() < size)) {
+                if (shrunk.length() > maxUploadBytes) {
+                    shrunk.delete()
+                    notices.tryEmit("That's too big to send (max ${maxUploadBytes / (1024 * 1024)} MB)")
+                    return null
+                }
+                return base.copy(file = shrunk.absolutePath, mime = "video/mp4", filename = name.substringBeforeLast('.') + ".mp4")
+            }
+            shrunk?.delete() // already small enough, or shrinking failed: send the original
+        }
+        return run {
             val ext = name.substringAfterLast('.', "bin").take(8)
             val f = newOutboxFile(ext)
             resolver.openInputStream(uri)?.use { input -> f.outputStream().use { input.copyTo(it) } }
@@ -554,7 +580,15 @@ object Bants {
             if (current.file != null && current.mediaId == null) {
                 val f = File(current.file!!)
                 if (!f.exists()) throw ApiException(400, "The file isn't there any more")
-                val media = upload(f.asRequestBody((current.mime ?: "application/octet-stream").toMediaType()), current.filename ?: f.name)
+                val clientId = current.clientId
+                val body = ProgressBody(f.asRequestBody((current.mime ?: "application/octet-stream").toMediaType())) { p ->
+                    uploadProgress.update { it + (clientId to p) }
+                }
+                val media = try {
+                    upload(body, current.filename ?: f.name)
+                } finally {
+                    uploadProgress.update { it - clientId }
+                }
                 current = current.copy(mediaId = media.id)
                 val updated = current
                 outbox.update { list -> list.map { if (it.clientId == updated.clientId) updated else it } }
@@ -1020,7 +1054,7 @@ object Bants {
     // ───────────── images ─────────────
 
     /** Shrinks a photo to a sensible size, fixes its rotation and re-encodes it as JPEG. */
-    private fun compressImage(uri: Uri, maxSide: Int = 2048): Pair<ByteArray, String> {
+    private fun compressImage(uri: Uri, maxSide: Int = 2048, quality: Int = 85): Pair<ByteArray, String> {
         val resolver = appContext.contentResolver
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
@@ -1049,7 +1083,7 @@ object Bants {
             bitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, Matrix().apply { postRotate(rotation) }, true)
         }
         val out = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
+        bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out)
         return out.toByteArray() to "image/jpeg"
     }
 }

@@ -18,6 +18,14 @@ class Session(context: Context) {
         get() = prefs.getBoolean("sounds", true)
         set(value) = prefs.edit().putBoolean("sounds", value).apply()
 
+    var photoQuality: String
+        get() = prefs.getString("photoQuality", "auto") ?: "auto"
+        set(value) = prefs.edit().putString("photoQuality", value).apply()
+
+    var videoQuality: String
+        get() = prefs.getString("videoQuality", "auto") ?: "auto"
+        set(value) = prefs.edit().putString("videoQuality", value).apply()
+
     var hapticsOn: Boolean
         get() = prefs.getBoolean("haptics", true)
         set(value) = prefs.edit().putBoolean("haptics", value).apply()

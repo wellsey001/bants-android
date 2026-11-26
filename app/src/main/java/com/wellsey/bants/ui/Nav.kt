@@ -31,6 +31,7 @@ sealed interface Screen {
     data object Archived : Screen
     data object Search : Screen
     data object Sounds : Screen
+    data object Quality : Screen
 }
 
 /** A tiny back stack: enough for this app without pulling in a navigation library. */
@@ -90,6 +91,7 @@ fun BantsRoot(openConversation: MutableStateFlow<Long?>) {
         Screen.Archived -> ArchivedScreen(nav)
         Screen.Search -> SearchScreen(nav)
         Screen.Sounds -> SoundsScreen(nav)
+        Screen.Quality -> QualityScreen(nav)
     }
 }
 

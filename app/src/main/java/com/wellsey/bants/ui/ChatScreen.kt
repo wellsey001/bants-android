@@ -848,6 +848,8 @@ private fun MessageBubble(
                         } else if (m.editedAt != null && !m.deleted) {
                             Text("edited  ", fontSize = 11.sp, color = faint)
                         }
+                        val uploading = if (m.pending) m.clientId?.let { id -> Bants.uploadProgress.collectAsState().value[id] } else null
+                        if (uploading != null) Text("Sending ${(uploading * 100).toInt()}%  ", fontSize = 11.sp, color = faint)
                         Text(clockTime(m.createdAt), fontSize = 11.sp, color = faint)
                         if (mine) {
                             Spacer(Modifier.width(4.dp))

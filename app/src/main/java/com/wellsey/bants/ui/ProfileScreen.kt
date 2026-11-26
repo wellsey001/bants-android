@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -156,6 +157,14 @@ fun ProfileScreen(nav: Navigator) {
                 fill = LocalBants.current.card,
                 content = LocalBants.current.onCard,
                 icon = androidx.compose.material.icons.Icons.Default.MusicNote,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            ChunkyButton(
+                "Photo & video quality",
+                onClick = { nav.go(Screen.Quality) },
+                fill = LocalBants.current.card,
+                content = LocalBants.current.onCard,
+                icon = androidx.compose.material.icons.Icons.Default.HighQuality,
                 modifier = Modifier.fillMaxWidth(),
             )
             FriendCodeCard(me?.friendCode)
