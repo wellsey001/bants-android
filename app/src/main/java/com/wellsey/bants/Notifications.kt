@@ -63,6 +63,71 @@ object Notifications {
         NotificationManagerCompat.from(context).notify(m.conversationId.toInt(), notification)
     }
 
+    /** Builds a notification from a Firebase push (used when the app isn't running). */
+    @SuppressLint("MissingPermission")
+    fun showPush(context: Context, data: Map<String, String>) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+
+        val title: String
+        val text: String
+        val convId: Long
+        when (data["type"]) {
+            "message" -> {
+                convId = data["conversationId"]?.toLongOrNull() ?: return
+                val sender = data["senderName"].orEmpty().ifBlank { "Someone" }
+                val preview = when (data["kind"]) {
+                    "image" -> "📷 Photo" + (data["body"]?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: "")
+                    "video" -> "🎥 Video"
+                    "audio" -> "🎤 Voice note"
+                    "file" -> "📎 File"
+                    else -> data["body"].orEmpty()
+                }
+                if (data["conversationType"] == "group") {
+                    title = data["conversationName"].orEmpty().ifBlank { "Group" }
+                    text = "$sender: $preview"
+                } else {
+                    title = sender
+                    text = preview
+                }
+            }
+            "contact_request" -> {
+                convId = 0
+                title = data["fromName"].orEmpty().ifBlank { "Someone" }
+                text = "wants to add you on Bants"
+            }
+            "contact_accepted" -> {
+                convId = data["conversationId"]?.toLongOrNull() ?: 0
+                title = data["name"].orEmpty().ifBlank { "Someone" }
+                text = "accepted your request. Say hi!"
+            }
+            else -> return
+        }
+
+        val intent = Intent(context, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        if (convId > 0) intent.putExtra(MainActivity.EXTRA_CONVERSATION, convId)
+        val pending = PendingIntent.getActivity(
+            context,
+            convId.toInt(),
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val notification = NotificationCompat.Builder(context, CHANNEL)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(0xFF5B4BFF.toInt())
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(pending)
+            .build()
+        NotificationManagerCompat.from(context).notify(if (convId > 0) convId.toInt() else -1, notification)
+    }
+
     fun cancel(context: Context, conversationId: Long) {
         NotificationManagerCompat.from(context).cancel(conversationId.toInt())
     }

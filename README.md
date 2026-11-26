@@ -26,5 +26,5 @@ The default server is `https://bants.kanji-avalanche.xyz`. You can change it on 
 ## Building
 Every push to `main` builds the APK with GitHub Actions and publishes it as a release. The APK is signed with the key in `app/debug.keystore`, so each new build installs over the last one.
 
-## Coming next
-- Push notifications through Firebase, so messages arrive even when the app is fully closed
+## Push notifications
+Pushes come through Firebase, so messages arrive even when the app is closed. They switch on when `app/google-services.json` (from your Firebase project) is in the repo and the server has `FCM_SERVICE_ACCOUNT` set. Without them the app still works, but notifications only arrive while it's running.

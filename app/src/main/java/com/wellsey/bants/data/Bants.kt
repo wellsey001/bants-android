@@ -7,6 +7,8 @@ import android.graphics.Matrix
 import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
+import com.google.firebase.FirebaseApp
+import com.google.firebase.messaging.FirebaseMessaging
 import androidx.exifinterface.media.ExifInterface
 import com.wellsey.bants.Notifications
 import kotlinx.coroutines.CancellationException
@@ -131,6 +133,34 @@ object Bants {
         realtime.start()
         scope.launch { runCatching { refreshAll() } }
         kickOutbox()
+        setUpPush()
+    }
+
+    // ───────────── push notifications ─────────────
+
+    /** True when the app was built with a Firebase config (app/google-services.json). */
+    val pushAvailable: Boolean
+        get() = runCatching { FirebaseApp.getApps(appContext).isNotEmpty() }.getOrDefault(false)
+
+    private fun setUpPush() {
+        if (!pushAvailable) return
+        runCatching {
+            FirebaseMessaging.getInstance().token.addOnSuccessListener { token -> registerPushToken(token) }
+        }
+    }
+
+    /** Tells the server where to send pushes for this phone. */
+    fun registerPushToken(token: String) {
+        if (session.token == null) return
+        scope.launch {
+            runCatching { api.post<JsonObject>("/api/me/push-token", buildJsonObject { put("token", token) }) }
+        }
+    }
+
+    /** A push arrived while the app was in the background: fetch it so the chat is ready. */
+    fun onPushMessage() {
+        if (!loggedIn.value) return
+        realtime.reconnectNow()
     }
 
     fun onForeground() {
