@@ -15,6 +15,7 @@ class BantsApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         Notifications.createChannel(this)
+        Sounds.init(this)
         Bants.init(this)
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) = Bants.onForeground()

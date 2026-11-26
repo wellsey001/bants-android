@@ -14,6 +14,10 @@ class Session(context: Context) {
         get() = prefs.getString("token", null)
         set(value) = prefs.edit().putString("token", value).apply()
 
+    var soundsOn: Boolean
+        get() = prefs.getBoolean("sounds", true)
+        set(value) = prefs.edit().putBoolean("sounds", value).apply()
+
     var user: User?
         get() = prefs.getString("user", null)?.let {
             runCatching { BantsJson.decodeFromString(User.serializer(), it) }.getOrNull()

@@ -11,6 +11,7 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
 import androidx.exifinterface.media.ExifInterface
 import com.wellsey.bants.Notifications
+import com.wellsey.bants.Sounds
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -520,6 +521,7 @@ object Bants {
                 }
                 putMessages(sent.conversationId, listOf(sent))
                 onNewMessage(sent, notify = false)
+                if (inForeground) Sounds.play(Sounds.Kind.Sent, session.soundsOn)
                 return true
             }
             if (current.file != null && current.mediaId == null) {
@@ -541,6 +543,7 @@ object Bants {
             }
             putMessages(sent.conversationId, listOf(sent))
             onNewMessage(sent, notify = false)
+            if (inForeground) Sounds.play(Sounds.Kind.Sent, session.soundsOn)
             return true
         } catch (e: CancellationException) {
             throw e
@@ -880,7 +883,11 @@ object Bants {
                     val id = ev.long("conversationId")
                     conversations.update { it - id }
                 }
-                "contact.request", "contact.request.removed" -> scope.launch { runCatching { refreshRequests() } }
+                "contact.request" -> {
+                    if (inForeground) Sounds.play(Sounds.Kind.Request, session.soundsOn)
+                    scope.launch { runCatching { refreshRequests() } }
+                }
+                "contact.request.removed" -> scope.launch { runCatching { refreshRequests() } }
                 "contact.added" -> {
                     upsert(decode<Conversation>(ev["conversation"]))
                     scope.launch {
@@ -919,12 +926,19 @@ object Bants {
             put("conversationId", m.conversationId)
             put("delivered", m.id)
         })
+        val mentioned = myId in m.meta?.mentions.orEmpty()
         if (viewing) {
             markRead(m.conversationId)
-        } else if (notify && (conv?.muted != true || myId in m.meta?.mentions.orEmpty())) {
-            val c = conversations.value[m.conversationId]
-            val sender = c?.members?.firstOrNull { it.user.id == m.senderId }?.user
-            Notifications.showMessage(appContext, c, m, sender, myId)
+            Sounds.play(Sounds.Kind.Incoming, session.soundsOn)
+        } else if (notify && (conv?.muted != true || mentioned)) {
+            if (inForeground) {
+                // App is open on another screen: a Bants noise instead of a system notification.
+                Sounds.play(if (mentioned) Sounds.Kind.Mention else Sounds.Kind.Message, session.soundsOn)
+            } else {
+                val c = conversations.value[m.conversationId]
+                val sender = c?.members?.firstOrNull { it.user.id == m.senderId }?.user
+                Notifications.showMessage(appContext, c, m, sender, myId)
+            }
         }
     }
 
