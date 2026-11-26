@@ -31,16 +31,17 @@ def finish(sig, name, gain=0.85):
     fade = int(0.01*SR); sig[-fade:] *= np.linspace(1,0,fade)
     wavfile.write(f"{name}.wav", SR, (sig*32767).astype(np.int16))
 
-# 1. Message notification: "bloop-bop" — a bubbly rising bloop, then a bright pop.
+# 1. Message notification: chunky arcade-coin "bling" (B5 then E6, square-ish wave).
 def message():
-    out = np.zeros(int(SR*0.6))
-    d1 = 0.16
-    s1 = tone(glide(380, 820, d1, 0.6), 0.3) * env(d1, 0.004, 14)
-    d2 = 0.30
-    ph = glide(1250, 1180, d2) + 0.25*np.sin(2*np.pi*14*t(d2))  # little wobble
-    s2 = tone(ph, 0.18) * env(d2, 0.002, 11)
-    place(out, s1, 0.0); place(out, 0.9*s2, 0.11)
-    finish(out, "bants_message")
+    out = np.zeros(int(SR*0.45))
+    def square(f, d, decay):
+        x = t(d)
+        s = np.sign(np.sin(2*np.pi*f*x))*0.6 + np.sin(2*np.pi*f*x)*0.4
+        return s*np.exp(-x*decay)*np.minimum(1, x/0.002)
+    place(out, square(988, 0.08, 10), 0.0)
+    place(out, square(1319, 0.36, 7), 0.07)
+    b, a = butter(2, [150/(SR/2), 7000/(SR/2)], 'band')
+    finish(lfilter(b, a, out), "bants_message", 0.6)
 
 # 2. In-chat incoming: one soft blip.
 def incoming():
