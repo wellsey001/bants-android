@@ -13,6 +13,7 @@ A WhatsApp-style messaging app for your own [Bants server](https://github.com/we
 - Photos (resized before upload), videos, files and hold-to-record voice notes
 - Swipe a message to reply; long-press to react with an emoji
 - Group info: members, admins, add or remove people, rename, group picture
+- Voice and video calls (1:1), with a full-screen incoming call screen even when Bants is closed
 - GIF search and your own stickers (make them from photos, or save ones friends send)
 - Pin, archive and mute chats; search all your messages
 - @mentions in groups (they reach you even if you've muted the chat)

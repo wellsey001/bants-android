@@ -12,6 +12,7 @@ import com.google.firebase.messaging.FirebaseMessaging
 import androidx.exifinterface.media.ExifInterface
 import com.wellsey.bants.Notifications
 import com.wellsey.bants.Sounds
+import com.wellsey.bants.calls.CallManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -895,6 +896,9 @@ object Bants {
                         runCatching { refreshRequests() }
                     }
                 }
+                "call.started", "call.incoming", "call.accepted", "call.joined", "call.signal", "call.ended" ->
+                    CallManager.onEvent(type, ev)
+                "error" -> if (ev.str("clientId") == "call") CallManager.onStartError(ev.str("error"))
                 "auth.lost" -> signOutLocal()
             }
         } catch (e: Exception) {

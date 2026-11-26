@@ -48,6 +48,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
@@ -114,6 +116,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import com.wellsey.bants.Notifications
+import com.wellsey.bants.calls.CallManager
 import com.wellsey.bants.data.Bants
 import com.wellsey.bants.data.Conversation
 import com.wellsey.bants.data.Message
@@ -232,6 +235,14 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
             replyingTo = null
         }
     }
+    var pendingCallVideo by remember { mutableStateOf<Boolean?>(null) }
+    val callPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        val video = pendingCallVideo
+        pendingCallVideo = null
+        val p = conversations[convId]?.peer(myId)
+        if (video != null && p != null && result.values.all { it }) CallManager.startCall(convId, p.id, p.displayName, p.avatar, video)
+        else if (video != null) toast(context, "Bants needs the microphone (and camera for video) to call")
+    }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         toast(context, if (granted) "Now hold the mic to record" else "Bants needs the microphone for voice notes")
     }
@@ -267,6 +278,18 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
         } else {
             Bants.sendText(convId, t, replyingTo?.id)
             replyingTo = null
+        }
+    }
+
+    fun startCall(video: Boolean) {
+        val p = peer ?: return
+        val need = mutableListOf(Manifest.permission.RECORD_AUDIO)
+        if (video) need += Manifest.permission.CAMERA
+        if (need.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) {
+            CallManager.startCall(convId, p.id, p.displayName, p.avatar, video)
+        } else {
+            pendingCallVideo = video
+            callPermissions.launch(need.toTypedArray())
         }
     }
 
@@ -307,6 +330,12 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
                             Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = BantsInk)
                         }
                     }
+                }
+                if (peer != null) {
+                    ChunkyIconButton(Icons.Default.Call, "Voice call", { startCall(false) }, fill = Color.White, tint = BantsInk, size = 42.dp)
+                    Spacer(Modifier.width(8.dp))
+                    ChunkyIconButton(Icons.Default.Videocam, "Video call", { startCall(true) }, fill = Color.White, tint = BantsInk, size = 42.dp)
+                    Spacer(Modifier.width(8.dp))
                 }
                 Box {
                     ChunkyIconButton(Icons.Default.MoreVert, "More", { menuOpen = true }, fill = Color.White, tint = BantsInk, size = 42.dp)

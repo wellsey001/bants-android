@@ -12,6 +12,17 @@ class PushService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         val data = message.data
+        when (data["type"]) {
+            "call" -> {
+                com.wellsey.bants.calls.CallManager.onIncomingFromPush(data)
+                Bants.onPushMessage()
+                return
+            }
+            "missed_call" -> {
+                if (!Bants.inForeground) Notifications.showMissedCall(applicationContext, data)
+                return
+            }
+        }
         // If the app is open and connected, the live connection has already handled it.
         if (Bants.inForeground && Bants.connected.value) return
         val convId = data["conversationId"]?.toLongOrNull()

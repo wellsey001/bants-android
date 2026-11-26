@@ -51,7 +51,13 @@ object Notifications {
         make(Sounds.Kind.Mention, "Mentions", "When someone @mentions you in a group, even if it's muted", NotificationManager.IMPORTANCE_HIGH)
         make(Sounds.Kind.Request, "Contact requests", "People adding you, and requests being accepted", NotificationManager.IMPORTANCE_DEFAULT)
         val keep = setOf(CHANNEL, MENTIONS, CONTACTS)
-        manager.notificationChannels.filter { it.id !in keep }.forEach { manager.deleteNotificationChannel(it.id) }
+        val oldSoundChannel = { id: String ->
+            id in setOf("messages", "messages_v2", "mentions", "contacts") ||
+                Sounds.Kind.values().any { id.startsWith(it.key + "_") }
+        }
+        manager.notificationChannels
+            .filter { it.id !in keep && oldSoundChannel(it.id) }
+            .forEach { manager.deleteNotificationChannel(it.id) }
     }
 
     @SuppressLint("MissingPermission")
@@ -156,6 +162,29 @@ object Notifications {
             .setContentIntent(pending)
             .build()
         NotificationManagerCompat.from(context).notify(if (convId > 0) convId.toInt() else -1, notification)
+    }
+
+    @SuppressLint("MissingPermission")
+    fun showMissedCall(context: Context, data: Map<String, String>) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+        val convId = data["conversationId"]?.toLongOrNull() ?: return
+        val name = data["callerName"].orEmpty().ifBlank { "Someone" }
+        val intent = Intent(context, MainActivity::class.java)
+            .putExtra(MainActivity.EXTRA_CONVERSATION, convId)
+            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        val pending = PendingIntent.getActivity(context, convId.toInt(), intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val n = NotificationCompat.Builder(context, CHANNEL)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(0xFF5B4BFF.toInt())
+            .setContentTitle("Missed ${if (data["video"] == "1") "video" else "voice"} call")
+            .setContentText("$name tried to call you")
+            .setCategory(NotificationCompat.CATEGORY_MISSED_CALL)
+            .setAutoCancel(true)
+            .setContentIntent(pending)
+            .build()
+        NotificationManagerCompat.from(context).notify(convId.toInt(), n)
     }
 
     fun cancel(context: Context, conversationId: Long) {
