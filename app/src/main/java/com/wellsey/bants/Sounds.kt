@@ -4,20 +4,43 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.SoundPool
+import com.wellsey.bants.data.Bants
 
-/** Bants' own little noises for when the app is open. Made with sounds/make_sounds.py. */
+/**
+ * Bants' own noises. Each type has four styles to pick from on the Sounds screen.
+ * All made with sounds/make_sounds.py.
+ */
 object Sounds {
-    enum class Kind(val res: Int, val volume: Float) {
-        Message(R.raw.bants_message, 0.8f),
-        Incoming(R.raw.bants_incoming, 0.6f),
-        Sent(R.raw.bants_sent, 0.45f),
-        Mention(R.raw.bants_mention, 0.8f),
-        Request(R.raw.bants_request, 0.8f),
+    enum class Kind(val key: String, val label: String, val about: String, val volume: Float, val default: Style) {
+        Message("message", "New message", "When a message arrives", 0.8f, Style.Arcade),
+        Incoming("incoming", "In the chat", "A message arrives in the chat you're looking at", 0.6f, Style.Crisp),
+        Sent("sent", "Sent", "Your message reaches the server", 0.45f, Style.Crisp),
+        Mention("mention", "Mentions", "Someone @mentions you", 0.8f, Style.ToyBox),
+        Request("request", "Contact requests", "Someone adds you", 0.8f, Style.Crisp),
+    }
+
+    enum class Style(val key: String, val label: String) {
+        Arcade("arcade", "Arcade"),
+        Bubbly("bubbly", "Bubbly"),
+        ToyBox("toybox", "Toy box"),
+        Crisp("crisp", "Crisp"),
+    }
+
+    fun resName(kind: Kind, style: Style) = "sound_${kind.key}_${style.key}"
+
+    fun styleFor(kind: Kind): Style {
+        val saved = Bants.session.soundStyle(kind.key)
+        return Style.values().firstOrNull { it.key == saved } ?: kind.default
+    }
+
+    fun setStyle(context: Context, kind: Kind, style: Style) {
+        Bants.session.setSoundStyle(kind.key, style.key)
+        Notifications.syncChannels(context)
     }
 
     private lateinit var pool: SoundPool
     private lateinit var audio: AudioManager
-    private val ids = mutableMapOf<Kind, Int>()
+    private val ids = mutableMapOf<String, Int>()
     private val ready = mutableSetOf<Int>()
     private var lastPlayed = 0L
 
@@ -33,17 +56,29 @@ object Sounds {
             )
             .build()
         pool.setOnLoadCompleteListener { _, id, status -> if (status == 0) ready += id }
-        Kind.values().forEach { ids[it] = pool.load(context, it.res, 1) }
+        for (kind in Kind.values()) for (style in Style.values()) {
+            val res = context.resources.getIdentifier(resName(kind, style), "raw", context.packageName)
+            if (res != 0) ids[resName(kind, style)] = pool.load(context, res, 1)
+        }
     }
 
-    /** Plays a sound unless sounds are off or the phone is on silent or vibrate. */
+    /** Plays the chosen sound for an event, unless sounds are off or the phone is on silent. */
     fun play(kind: Kind, enabled: Boolean) {
         if (!enabled || !::pool.isInitialized) return
         if (audio.ringerMode != AudioManager.RINGER_MODE_NORMAL) return
         val now = System.currentTimeMillis()
-        if (now - lastPlayed < 120) return // don't machine-gun when lots arrive at once
+        if (now - lastPlayed < 120) return
         lastPlayed = now
-        val id = ids[kind] ?: return
+        playRaw(kind, styleFor(kind))
+    }
+
+    /** Plays a sound on the Sounds screen, even on silent, so you can hear what you're picking. */
+    fun preview(kind: Kind, style: Style) {
+        if (::pool.isInitialized) playRaw(kind, style)
+    }
+
+    private fun playRaw(kind: Kind, style: Style) {
+        val id = ids[resName(kind, style)] ?: return
         if (id in ready) pool.play(id, kind.volume, kind.volume, 1, 0, 1f)
     }
 }

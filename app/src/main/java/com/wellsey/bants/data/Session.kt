@@ -18,6 +18,10 @@ class Session(context: Context) {
         get() = prefs.getBoolean("sounds", true)
         set(value) = prefs.edit().putBoolean("sounds", value).apply()
 
+    fun soundStyle(kind: String): String? = prefs.getString("sound_$kind", null)
+
+    fun setSoundStyle(kind: String, style: String) = prefs.edit().putString("sound_$kind", style).apply()
+
     var user: User?
         get() = prefs.getString("user", null)?.let {
             runCatching { BantsJson.decodeFromString(User.serializer(), it) }.getOrNull()

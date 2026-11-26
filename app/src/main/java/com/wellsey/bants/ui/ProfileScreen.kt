@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -58,7 +59,6 @@ fun ProfileScreen(nav: Navigator) {
     var uploading by remember { mutableStateOf(false) }
     var confirmReset by remember { mutableStateOf(false) }
     var confirmLogout by remember { mutableStateOf(false) }
-    var soundsOn by remember { mutableStateOf(Bants.session.soundsOn) }
 
     LaunchedEffect(Unit) { runCatching { Bants.refreshMe() } }
 
@@ -149,22 +149,14 @@ fun ProfileScreen(nav: Navigator) {
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-            ChunkyCard(Modifier.fillMaxWidth(), shadow = 0.dp) {
-                Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Sounds in the app", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                        Text("Pops and bloops while Bants is open. Follows your phone's silent switch.", style = MaterialTheme.typography.bodySmall, color = LocalBants.current.muted)
-                    }
-                    androidx.compose.material3.Switch(
-                        checked = soundsOn,
-                        onCheckedChange = {
-                            soundsOn = it
-                            Bants.session.soundsOn = it
-                            if (it) com.wellsey.bants.Sounds.play(com.wellsey.bants.Sounds.Kind.Message, true)
-                        },
-                    )
-                }
-            }
+            ChunkyButton(
+                "Sounds",
+                onClick = { nav.go(Screen.Sounds) },
+                fill = LocalBants.current.card,
+                content = LocalBants.current.onCard,
+                icon = androidx.compose.material.icons.Icons.Default.MusicNote,
+                modifier = Modifier.fillMaxWidth(),
+            )
             FriendCodeCard(me?.friendCode)
             TextButton(onClick = { confirmReset = true }) { Text("Get a new friend code") }
 

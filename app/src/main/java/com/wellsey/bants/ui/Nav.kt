@@ -30,6 +30,7 @@ sealed interface Screen {
     data class AddMembers(val id: Long) : Screen
     data object Archived : Screen
     data object Search : Screen
+    data object Sounds : Screen
 }
 
 /** A tiny back stack: enough for this app without pulling in a navigation library. */
@@ -88,6 +89,7 @@ fun BantsRoot(openConversation: MutableStateFlow<Long?>) {
         is Screen.AddMembers -> key(screen.id) { AddMembersScreen(screen.id, nav) }
         Screen.Archived -> ArchivedScreen(nav)
         Screen.Search -> SearchScreen(nav)
+        Screen.Sounds -> SoundsScreen(nav)
     }
 }
 

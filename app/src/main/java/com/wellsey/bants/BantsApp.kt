@@ -14,9 +14,9 @@ import com.wellsey.bants.data.Bants
 class BantsApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
+        Bants.init(this)
         Notifications.createChannel(this)
         Sounds.init(this)
-        Bants.init(this)
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) = Bants.onForeground()
             override fun onStop(owner: LifecycleOwner) {

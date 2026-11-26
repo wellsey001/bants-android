@@ -20,40 +20,38 @@ import com.wellsey.bants.data.preview
 import com.wellsey.bants.data.title
 
 object Notifications {
-    // Channel sounds can't change after they're made, so new sounds mean new channel ids.
-    private const val CHANNEL = "messages_v2"
-    private const val MENTIONS = "mentions"
-    private const val CONTACTS = "contacts"
+    // A channel's sound can't change once it exists, so each sound choice gets its own channel id.
+    private fun channelId(kind: Sounds.Kind) = "${kind.key}_${Sounds.styleFor(kind).key}"
+    private val CHANNEL get() = channelId(Sounds.Kind.Message)
+    private val MENTIONS get() = channelId(Sounds.Kind.Mention)
+    private val CONTACTS get() = channelId(Sounds.Kind.Request)
 
-    private fun soundUri(context: Context, res: Int) =
-        android.net.Uri.parse("android.resource://${context.packageName}/$res")
+    fun createChannel(context: Context) = syncChannels(context)
 
-    fun createChannel(context: Context) {
+    /** Makes sure the notification channels use the sounds picked on the Sounds screen. */
+    fun syncChannels(context: Context) {
         if (Build.VERSION.SDK_INT < 26) return
         val manager = context.getSystemService(NotificationManager::class.java)
         val attrs = android.media.AudioAttributes.Builder()
             .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_COMMUNICATION_INSTANT)
             .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
             .build()
-        manager.deleteNotificationChannel("messages")
-        manager.createNotificationChannel(
-            NotificationChannel(CHANNEL, "Messages", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "New messages from your chats"
-                setSound(soundUri(context, R.raw.bants_message), attrs)
-            },
-        )
-        manager.createNotificationChannel(
-            NotificationChannel(MENTIONS, "Mentions", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "When someone @mentions you in a group, even if it's muted"
-                setSound(soundUri(context, R.raw.bants_mention), attrs)
-            },
-        )
-        manager.createNotificationChannel(
-            NotificationChannel(CONTACTS, "Contact requests", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "People adding you, and requests being accepted"
-                setSound(soundUri(context, R.raw.bants_request), attrs)
-            },
-        )
+        fun make(kind: Sounds.Kind, name: String, about: String, importance: Int) {
+            val sound = android.net.Uri.parse(
+                "android.resource://${context.packageName}/raw/${Sounds.resName(kind, Sounds.styleFor(kind))}",
+            )
+            manager.createNotificationChannel(
+                NotificationChannel(channelId(kind), name, importance).apply {
+                    description = about
+                    setSound(sound, attrs)
+                },
+            )
+        }
+        make(Sounds.Kind.Message, "Messages", "New messages from your chats", NotificationManager.IMPORTANCE_HIGH)
+        make(Sounds.Kind.Mention, "Mentions", "When someone @mentions you in a group, even if it's muted", NotificationManager.IMPORTANCE_HIGH)
+        make(Sounds.Kind.Request, "Contact requests", "People adding you, and requests being accepted", NotificationManager.IMPORTANCE_DEFAULT)
+        val keep = setOf(CHANNEL, MENTIONS, CONTACTS)
+        manager.notificationChannels.filter { it.id !in keep }.forEach { manager.deleteNotificationChannel(it.id) }
     }
 
     @SuppressLint("MissingPermission")

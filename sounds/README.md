@@ -1,16 +1,16 @@
 # Bants sounds
 
-All five sounds are synthesised from scratch by `make_sounds.py` (numpy + scipy), so they're ours to use. Run it, then convert to OGG:
+Four styles for each of the five sound types, all synthesised from scratch by `make_sounds.py` (numpy + scipy), so they're ours to use. People pick them in the app under Profile → Sounds.
 
 ```
 python3 make_sounds.py
-for f in *.wav; do ffmpeg -y -i "$f" -c:a libvorbis -q:a 5 "${f%.wav}.ogg"; done
+for f in *_*.wav; do ffmpeg -y -i "$f" -c:a libvorbis -q:a 5 "../app/src/main/res/raw/sound_${f%.wav}.ogg"; done
 ```
 
-| File | When it plays |
-|---|---|
-| `bants_message` | New message (notification sound, and in-app on other screens): an arcade-coin bling |
-| `bants_incoming` | Message arrives in the chat you're looking at |
-| `bants_sent` | Your message reaches the server |
-| `bants_mention` | Someone @mentions you (a cheeky wolf whistle) |
-| `bants_request` | Someone adds you |
+| Type | Arcade | Bubbly | Toy box | Crisp |
+|---|---|---|---|---|
+| message | Coin bling (default) | Plip-plop drops | Two squeaks | Snap and tok |
+| incoming | Chip blip | One drop | One squeak | Soft blip (default) |
+| sent | Three-note jump | Rising bubble | Slide whistle | Fwip (default) |
+| mention | Sparkle | Four rising drops | Wolf whistle (default) | Snap-snap-tok |
+| request | Level-up arpeggio | Bubble cascade | Honk-honk | Marimba ding-dong (default) |
