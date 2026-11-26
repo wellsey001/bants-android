@@ -72,7 +72,7 @@ fun ProfileScreen(nav: Navigator) {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: ""
     }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Profile") }, navigationIcon = { BackButton(nav) }) }) { padding ->
+    Scaffold(topBar = { ChunkyTopBar("Profile", nav) }) { padding ->
         Column(
             Modifier
                 .padding(padding)
@@ -103,6 +103,8 @@ fun ProfileScreen(nav: Navigator) {
             )
 
             OutlinedTextField(
+                shape = FieldShape,
+                colors = chunkyFieldColors(),
                 value = displayName,
                 onValueChange = { displayName = it.take(50) },
                 label = { Text("Display name") },
@@ -111,6 +113,8 @@ fun ProfileScreen(nav: Navigator) {
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
+                shape = FieldShape,
+                colors = chunkyFieldColors(),
                 value = about,
                 onValueChange = { about = it.take(140) },
                 label = { Text("About") },
@@ -118,7 +122,8 @@ fun ProfileScreen(nav: Navigator) {
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 modifier = Modifier.fillMaxWidth(),
             )
-            Button(
+            ChunkyButton(
+                "Save",
                 onClick = {
                     scope.launch {
                         saving = true
@@ -128,9 +133,10 @@ fun ProfileScreen(nav: Navigator) {
                         saving = false
                     }
                 },
-                enabled = changed && displayName.isNotBlank() && !saving,
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-            ) { Text("Save") }
+                enabled = changed && displayName.isNotBlank(),
+                busy = saving,
+                modifier = Modifier.fillMaxWidth(),
+            )
 
             FriendCodeCard(me?.friendCode)
             TextButton(onClick = { confirmReset = true }) { Text("Get a new friend code") }
@@ -140,11 +146,13 @@ fun ProfileScreen(nav: Navigator) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            OutlinedButton(
+            ChunkyButton(
+                "Log out",
                 onClick = { confirmLogout = true },
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                fill = LocalBants.current.card,
+                content = MaterialTheme.colorScheme.error,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Log out") }
+            )
         }
     }
 

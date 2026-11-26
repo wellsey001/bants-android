@@ -59,7 +59,7 @@ fun NewChatScreen(nav: Navigator) {
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) { runCatching { Bants.refreshContacts() } }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("New chat") }, navigationIcon = { BackButton(nav) }) }) { padding ->
+    Scaffold(topBar = { ChunkyTopBar("New chat", nav) }) { padding ->
         LazyColumn(Modifier.padding(padding).fillMaxSize()) {
             item { ActionRow(Icons.Default.PersonAdd, "Add contact", "By username or friend code") { nav.go(Screen.AddContact) } }
             item { ActionRow(Icons.Default.Group, "New group") { nav.go(Screen.NewGroup) } }
@@ -99,7 +99,7 @@ fun AddContactScreen(nav: Navigator) {
     var result by remember { mutableStateOf<AddContactResult?>(null) }
     val scope = rememberCoroutineScope()
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Add contact") }, navigationIcon = { BackButton(nav) }) }) { padding ->
+    Scaffold(topBar = { ChunkyTopBar("Add contact", nav) }) { padding ->
         Column(
             Modifier
                 .padding(padding)
@@ -110,11 +110,13 @@ fun AddContactScreen(nav: Navigator) {
         ) {
             FriendCodeCard(me?.friendCode)
 
-            TabRow(selectedTabIndex = if (byCode) 1 else 0) {
-                Tab(selected = !byCode, onClick = { byCode = false; input = ""; error = null }, text = { Text("Username") })
-                Tab(selected = byCode, onClick = { byCode = true; input = ""; error = null }, text = { Text("Friend code") })
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ChunkyChip("By username", !byCode) { byCode = false; input = ""; error = null }
+                ChunkyChip("By friend code", byCode) { byCode = true; input = ""; error = null }
             }
             OutlinedTextField(
+                shape = FieldShape,
+                colors = chunkyFieldColors(),
                 value = input,
                 onValueChange = { input = it; error = null },
                 label = { Text(if (byCode) "Their friend code" else "Their username") },
@@ -129,7 +131,8 @@ fun AddContactScreen(nav: Navigator) {
                 },
                 modifier = Modifier.fillMaxWidth(),
             )
-            Button(
+            ChunkyButton(
+                "Add",
                 onClick = {
                     scope.launch {
                         busy = true
@@ -144,18 +147,19 @@ fun AddContactScreen(nav: Navigator) {
                         }
                     }
                 },
-                enabled = input.isNotBlank() && !busy,
-                modifier = Modifier.fillMaxWidth().height(50.dp),
-            ) { Text("Add") }
+                enabled = input.isNotBlank(),
+                busy = busy,
+                modifier = Modifier.fillMaxWidth(),
+            )
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
             result?.let { r ->
-                Card(Modifier.fillMaxWidth()) {
+                ChunkyCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         if (r.status == "accepted") {
                             Text("${r.contact?.displayName ?: "They"} is now in your contacts!", fontWeight = FontWeight.SemiBold)
                             r.conversation?.let { c ->
-                                Button(onClick = { nav.replace(Screen.Chat(c.id)) }) { Text("Say hi") }
+                                ChunkyButton("Say hi", onClick = { nav.replace(Screen.Chat(c.id)) })
                             }
                         } else {
                             Text(
@@ -176,7 +180,7 @@ fun RequestsScreen(nav: Navigator) {
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) { runCatching { Bants.refreshRequests() } }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("Contact requests") }, navigationIcon = { BackButton(nav) }) }) { padding ->
+    Scaffold(topBar = { ChunkyTopBar("Contact requests", nav) }) { padding ->
         LazyColumn(Modifier.padding(padding).fillMaxSize()) {
             item { SectionLabel("Waiting for you") }
             if (requests.incoming.isEmpty()) {
@@ -227,9 +231,9 @@ fun NewGroupScreen(nav: Navigator) {
     val scope = rememberCoroutineScope()
 
     Scaffold(topBar = {
-        TopAppBar(
-            title = { Text("New group") },
-            navigationIcon = { BackButton(nav) },
+        ChunkyTopBar(
+            title = "New group",
+            nav = nav,
             actions = {
                 TextButton(
                     enabled = name.isNotBlank() && selected.isNotEmpty() && !busy,
@@ -253,6 +257,8 @@ fun NewGroupScreen(nav: Navigator) {
         LazyColumn(Modifier.padding(padding).fillMaxSize().imePadding()) {
             item {
                 OutlinedTextField(
+                    shape = FieldShape,
+                    colors = chunkyFieldColors(),
                     value = name,
                     onValueChange = { name = it.take(60) },
                     label = { Text("Group name") },

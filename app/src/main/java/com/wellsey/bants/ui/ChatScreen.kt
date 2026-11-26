@@ -29,6 +29,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -40,6 +42,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
@@ -242,57 +245,57 @@ fun ChatScreen(convId: Long, nav: Navigator) {
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = {
-            TopAppBar(
-                navigationIcon = { BackButton(nav) },
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clickable { nav.go(Screen.ChatInfo(convId)) },
-                    ) {
-                        Avatar(title, conv.avatarMedia(myId), size = 40.dp, online = peer?.online == true, group = conv.isGroup)
-                        Spacer(Modifier.width(10.dp))
-                        Column {
-                            Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                            if (subtitle.isNotEmpty()) {
-                                Text(
-                                    subtitle,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = if (typers.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
+        topBar = { Column {
+            val b = LocalBants.current
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(BantsYellow)
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ChunkyIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", { nav.back() }, fill = Color.White, tint = BantsInk, size = 42.dp)
+                Spacer(Modifier.width(10.dp))
+                Row(
+                    Modifier.weight(1f).clickable { nav.go(Screen.ChatInfo(convId)) },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Avatar(title, conv.avatarMedia(myId), size = 42.dp, online = peer?.online == true, group = conv.isGroup)
+                    Spacer(Modifier.width(10.dp))
+                    Column {
+                        Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontFamily = Bricolage, fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, color = BantsInk)
+                        if (subtitle.isNotEmpty()) {
+                            Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = BantsInk)
                         }
                     }
-                },
-                actions = {
-                    Box {
-                        IconButton(onClick = { menuOpen = true }) { Icon(Icons.Default.MoreVert, contentDescription = "More") }
-                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            DropdownMenuItem(
-                                text = { Text(if (conv.isGroup) "Group info" else "Contact info") },
-                                onClick = { menuOpen = false; nav.go(Screen.ChatInfo(convId)) },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(if (conv.muted) "Unmute" else "Mute notifications") },
-                                onClick = {
-                                    menuOpen = false
-                                    scope.launch { runCatching { Bants.setMuted(convId, !conv.muted) }.onFailure { toast(context, it.message) } }
-                                },
-                            )
-                            if (conv.isGroup) {
-                                DropdownMenuItem(text = { Text("Leave group") }, onClick = { menuOpen = false; confirm = "leave" })
-                            } else if (peer != null) {
-                                DropdownMenuItem(text = { Text("Block ${peer.displayName}") }, onClick = { menuOpen = false; confirm = "block" })
-                            }
+                }
+                Box {
+                    ChunkyIconButton(Icons.Default.MoreVert, "More", { menuOpen = true }, fill = Color.White, tint = BantsInk, size = 42.dp)
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text(if (conv.isGroup) "Group info" else "Contact info") },
+                            onClick = { menuOpen = false; nav.go(Screen.ChatInfo(convId)) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (conv.muted) "Unmute" else "Mute notifications") },
+                            onClick = {
+                                menuOpen = false
+                                scope.launch { runCatching { Bants.setMuted(convId, !conv.muted) }.onFailure { toast(context, it.message) } }
+                            },
+                        )
+                        if (conv.isGroup) {
+                            DropdownMenuItem(text = { Text("Leave group") }, onClick = { menuOpen = false; confirm = "leave" })
+                        } else if (peer != null) {
+                            DropdownMenuItem(text = { Text("Block ${peer.displayName}") }, onClick = { menuOpen = false; confirm = "block" })
                         }
                     }
-                },
-            )
-        },
+                }
+            }
+            Box(Modifier.fillMaxWidth().height(2.5.dp).background(b.outline))
+        } },
         bottomBar = {
-            Surface(tonalElevation = 3.dp) {
+            Surface(color = MaterialTheme.colorScheme.background) {
                 Column(Modifier.navigationBarsPadding().imePadding()) {
                     val quoted = replyingTo
                     if (editing != null) {
@@ -303,9 +306,7 @@ fun ChatScreen(convId: Long, nav: Navigator) {
                     Row(Modifier.padding(8.dp), verticalAlignment = Alignment.Bottom) {
                         if (editing == null && !recording) {
                             Box {
-                                IconButton(onClick = { attachOpen = true }, modifier = Modifier.padding(bottom = 2.dp)) {
-                                    Icon(Icons.Default.AttachFile, contentDescription = "Attach", tint = MaterialTheme.colorScheme.primary)
-                                }
+                                ChunkyIconButton(Icons.Default.AttachFile, "Attach", { attachOpen = true }, size = 50.dp, modifier = Modifier.padding(end = 8.dp, bottom = 3.dp))
                                 DropdownMenu(expanded = attachOpen, onDismissRequest = { attachOpen = false }) {
                                     DropdownMenuItem(
                                         text = { Text("Photo or video") },
@@ -342,24 +343,33 @@ fun ChatScreen(convId: Long, nav: Navigator) {
                                     text = it
                                     if (it.isNotEmpty() && editing == null) Bants.sendTyping(convId)
                                 },
-                                placeholder = { Text("Message") },
+                                placeholder = { Text("Say something cheeky…") },
                                 maxLines = 5,
-                                shape = RoundedCornerShape(26.dp),
+                                shape = FieldShape,
+                                colors = chunkyFieldColors(),
                                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                                 modifier = Modifier.weight(1f),
                             )
                         }
                         Spacer(Modifier.width(6.dp))
                         if (text.isNotBlank() || editing != null) {
-                            FilledIconButton(onClick = { send() }, enabled = text.isNotBlank(), modifier = Modifier.size(54.dp)) {
-                                Icon(if (editing != null) Icons.Default.Done else Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
-                            }
+                            ChunkyIconButton(
+                                if (editing != null) Icons.Default.Done else Icons.AutoMirrored.Filled.Send,
+                                "Send",
+                                { send() },
+                                fill = BantsPurple,
+                                tint = Color.White,
+                                size = 52.dp,
+                                shadow = 4.dp,
+                                enabled = text.isNotBlank(),
+                                modifier = Modifier.padding(bottom = 3.dp),
+                            )
                         } else {
                             Box(
                                 Modifier
-                                    .size(54.dp)
-                                    .clip(CircleShape)
-                                    .background(if (recording) Color(0xFFE5484D) else MaterialTheme.colorScheme.primary)
+                                    .padding(bottom = 3.dp)
+                                    .size(52.dp)
+                                    .chunky(RoundedCornerShape(14.dp), if (recording) Color(0xFFE5484D) else BantsPink, LocalBants.current.outline, shadow = if (recording) 0.dp else 4.dp)
                                     .pointerInput(convId) {
                                         detectTapGestures(onPress = {
                                             if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -386,7 +396,7 @@ fun ChatScreen(convId: Long, nav: Navigator) {
                                     },
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Icon(Icons.Default.Mic, contentDescription = "Hold to record a voice note", tint = Color.White)
+                                Icon(Icons.Default.Mic, contentDescription = "Hold to record a voice note", tint = BantsInk)
                             }
                         }
                     }
@@ -499,15 +509,8 @@ private fun ComposerBanner(icon: androidx.compose.ui.graphics.vector.ImageVector
 
 @Composable
 private fun DayChip(text: String) {
-    Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-        Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(10.dp)) {
-            Text(
-                text,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-            )
-        }
+    Box(Modifier.fillMaxWidth().padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+        Pill(text.uppercase())
     }
 }
 
@@ -534,8 +537,9 @@ private fun MessageBubble(
     var dragX by remember { mutableFloatStateOf(0f) }
     val shownX by animateFloatAsState(dragX, label = "swipe")
     val canInteract = !m.deleted && !m.pending && !m.failed
-    val bubble = if (mine) BantsPurple else MaterialTheme.colorScheme.surfaceVariant
-    val ink = if (mine) Color.White else MaterialTheme.colorScheme.onSurface
+    val b = LocalBants.current
+    val bubble = if (mine) BantsPurple else b.theirBubble
+    val ink = if (mine) Color.White else b.onCard
     val faint = ink.copy(alpha = 0.7f)
     val shape = RoundedCornerShape(
         topStart = 18.dp,
@@ -557,12 +561,10 @@ private fun MessageBubble(
                     modifier = Modifier.align(Alignment.CenterStart).offset(x = (-36).dp),
                 )
             }
-            Surface(
-                color = bubble,
-                shape = shape,
+            Box(
                 modifier = Modifier
                     .widthIn(max = 300.dp)
-                    .clip(shape)
+                    .chunky(shape, bubble, b.outline, shadow = if (mine) 3.dp else 0.dp)
                     .draggable(
                         orientation = Orientation.Horizontal,
                         enabled = canInteract,
@@ -580,27 +582,23 @@ private fun MessageBubble(
                 Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                     if (showSender) {
                         val name = conv.members.firstOrNull { it.user.id == m.senderId }?.user?.displayName ?: "Someone"
-                        Text(name, color = colourFor(name), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        Text(name, color = colourFor(name), fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
                     }
                     if (m.replyTo != null && !m.deleted) {
-                        Surface(
-                            color = if (mine) Color.White.copy(alpha = 0.16f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.padding(top = 2.dp, bottom = 4.dp).clickable(onClick = onQuote),
+                        Box(
+                            Modifier
+                                .padding(top = 2.dp, bottom = 5.dp)
+                                .chunky(RoundedCornerShape(10.dp), BantsYellow, BantsInk, shadow = 0.dp, border = 2.dp)
+                                .clickable(onClick = onQuote),
                         ) {
                             Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
-                                Text(
-                                    quotedName ?: "Reply",
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 13.sp,
-                                    color = if (mine) Color.White else MaterialTheme.colorScheme.primary,
-                                )
+                                Text(quotedName ?: "Reply", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, color = BantsInk)
                                 Text(
                                     quoted?.preview() ?: "Earlier message",
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
                                     fontSize = 13.sp,
-                                    color = faint,
+                                    color = BantsInk,
                                 )
                             }
                         }
@@ -705,16 +703,16 @@ private fun MessageBubble(
             ) {
                 m.reactions.forEach { r ->
                     val reactedByMe = myId in r.userIds
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (reactedByMe) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-                        tonalElevation = 2.dp,
-                        shadowElevation = 1.dp,
-                        modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { onReact(r.emoji) },
+                    Box(
+                        Modifier
+                            .chunky(RoundedCornerShape(50), if (reactedByMe) BantsYellow else b.card, b.outline, shadow = 0.dp, border = 2.dp)
+                            .clickable { onReact(r.emoji) },
                     ) {
                         Text(
                             if (r.userIds.size > 1) "${r.emoji} ${r.userIds.size}" else r.emoji,
                             fontSize = 14.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = if (reactedByMe) BantsInk else b.onCard,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                         )
                     }
@@ -729,7 +727,7 @@ private fun Ticks(m: Message, conv: Conversation, myId: Long) {
     val others = conv.members.filter { it.user.id != myId }
     val dim = Color.White.copy(alpha = 0.7f)
     val (icon, tint, label) = when {
-        m.failed -> Triple(Icons.Default.ErrorOutline, Color(0xFFFFC2C2), "Not sent")
+        m.failed -> Triple(Icons.Default.ErrorOutline, BantsPink, "Not sent")
         m.pending -> Triple(Icons.Default.Schedule, dim, "Waiting to send")
         others.isNotEmpty() && others.all { it.lastRead >= m.id } -> Triple(Icons.Default.DoneAll, ReadTick, "Read")
         others.isNotEmpty() && others.all { it.lastDelivered >= m.id } -> Triple(Icons.Default.DoneAll, dim, "Delivered")

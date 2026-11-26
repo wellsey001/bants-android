@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
@@ -68,18 +69,19 @@ private val avatarColours = listOf(
 fun colourFor(name: String): Color = avatarColours[(name.hashCode() and 0x7fffffff) % avatarColours.size]
 
 @Composable
-fun Avatar(name: String, media: String?, size: Dp = 48.dp, online: Boolean = false, group: Boolean = false) {
+fun Avatar(name: String, media: String?, size: Dp = 48.dp, online: Boolean = false, group: Boolean = false, outlined: Boolean = true) {
+    val ring = if (outlined) Modifier.border(if (size >= 40.dp) 2.5.dp else 2.dp, LocalBants.current.outline, CircleShape) else Modifier
     Box(Modifier.size(size)) {
         if (media != null) {
             AsyncImage(
                 model = mediaUrl(media),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                modifier = Modifier.fillMaxSize().clip(CircleShape).then(ring),
             )
         } else {
             Box(
-                Modifier.fillMaxSize().clip(CircleShape).background(colourFor(name)),
+                Modifier.fillMaxSize().clip(CircleShape).background(colourFor(name)).then(ring),
                 contentAlignment = Alignment.Center,
             ) {
                 if (group) {
@@ -101,7 +103,7 @@ fun Avatar(name: String, media: String?, size: Dp = 48.dp, online: Boolean = fal
                     .align(Alignment.BottomEnd)
                     .clip(CircleShape)
                     .background(OnlineGreen)
-                    .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape),
+                    .border(2.dp, LocalBants.current.outline, CircleShape),
             )
         }
     }
@@ -109,9 +111,7 @@ fun Avatar(name: String, media: String?, size: Dp = 48.dp, online: Boolean = fal
 
 @Composable
 fun BackButton(nav: Navigator) {
-    IconButton(onClick = { nav.back() }) {
-        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-    }
+    ChunkyIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", { nav.back() })
 }
 
 @Composable
@@ -122,7 +122,7 @@ fun UserRow(
     trailing: @Composable (() -> Unit)? = null,
 ) {
     ListItem(
-        headlineContent = { Text(user.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        headlineContent = { Text(user.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis, fontFamily = Bricolage, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp) },
         supportingContent = {
             Text(
                 supporting ?: user.about.ifBlank { "@${user.username}" },
@@ -139,16 +139,16 @@ fun UserRow(
 @Composable
 fun ActionRow(icon: ImageVector, title: String, subtitle: String? = null, onClick: () -> Unit) {
     ListItem(
-        headlineContent = { Text(title, fontWeight = FontWeight.SemiBold) },
+        headlineContent = { Text(title, fontFamily = Bricolage, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp) },
         supportingContent = if (subtitle != null) {
             { Text(subtitle) }
         } else null,
         leadingContent = {
             Box(
-                Modifier.size(44.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary),
+                Modifier.size(44.dp).chunky(RoundedCornerShape(14.dp), BantsPurple, LocalBants.current.outline, shadow = 3.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary)
+                Icon(icon, contentDescription = null, tint = Color.White)
             }
         },
         modifier = Modifier.clickable(onClick = onClick),
@@ -160,8 +160,9 @@ fun SectionLabel(text: String) {
     Text(
         text.uppercase(),
         style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.primary,
-        fontWeight = FontWeight.Bold,
+        color = LocalBants.current.muted,
+        fontWeight = FontWeight.ExtraBold,
+        letterSpacing = 1.sp,
         modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 6.dp),
     )
 }
@@ -170,51 +171,48 @@ fun SectionLabel(text: String) {
 fun FriendCodeCard(code: String?) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
+    ChunkyCard(Modifier.fillMaxWidth(), fill = BantsYellow) {
         Column(Modifier.padding(20.dp)) {
-            Text("Your friend code", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            Text("YOUR FRIEND CODE", fontWeight = FontWeight.ExtraBold, fontSize = 12.sp, letterSpacing = 1.sp, color = BantsInk)
             Text(
                 code ?: "…",
-                fontSize = 32.sp,
+                fontSize = 34.sp,
                 fontWeight = FontWeight.ExtraBold,
                 fontFamily = FontFamily.Monospace,
                 letterSpacing = 2.sp,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.padding(vertical = 6.dp),
+                color = BantsInk,
+                modifier = Modifier.padding(vertical = 4.dp),
             )
-            Text(
-                "Anyone with this code can add you straight away.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-            Spacer(Modifier.size(12.dp))
+            Text("Anyone with this code can add you straight away.", fontSize = 14.sp, color = BantsInk)
+            Spacer(Modifier.size(14.dp))
             Row {
-                OutlinedButton(onClick = {
-                    if (code != null) {
-                        clipboard.setText(AnnotatedString(code))
-                        toast(context, "Copied")
-                    }
-                }) {
-                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Copy")
-                }
-                Spacer(Modifier.width(10.dp))
-                Button(onClick = {
-                    if (code != null) {
-                        val send = Intent(Intent.ACTION_SEND)
-                            .setType("text/plain")
-                            .putExtra(Intent.EXTRA_TEXT, "Add me on Bants! My friend code is $code")
-                        context.startActivity(Intent.createChooser(send, "Share your friend code"))
-                    }
-                }) {
-                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Share")
-                }
+                ChunkyButton(
+                    "Copy",
+                    onClick = {
+                        if (code != null) {
+                            clipboard.setText(AnnotatedString(code))
+                            toast(context, "Copied")
+                        }
+                    },
+                    fill = Color.White,
+                    content = BantsInk,
+                    icon = Icons.Default.ContentCopy,
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(12.dp))
+                ChunkyButton(
+                    "Share",
+                    onClick = {
+                        if (code != null) {
+                            val send = Intent(Intent.ACTION_SEND)
+                                .setType("text/plain")
+                                .putExtra(Intent.EXTRA_TEXT, "Add me on Bants! My friend code is $code")
+                            context.startActivity(Intent.createChooser(send, "Share your friend code"))
+                        }
+                    },
+                    icon = Icons.Default.Share,
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
     }

@@ -113,7 +113,7 @@ fun ChatInfoScreen(convId: Long, nav: Navigator) {
     }
 
     Scaffold(topBar = {
-        TopAppBar(title = { Text(if (conv.isGroup) "Group info" else "Contact info") }, navigationIcon = { BackButton(nav) })
+        ChunkyTopBar(if (conv.isGroup) "Group info" else "Contact info", nav)
     }) { padding ->
         LazyColumn(Modifier.padding(padding).fillMaxSize()) {
             item {
@@ -206,11 +206,13 @@ fun ChatInfoScreen(convId: Long, nav: Navigator) {
 
             item {
                 Spacer(Modifier.size(16.dp))
-                OutlinedButton(
+                ChunkyButton(
+                    if (conv.isGroup) "Leave group" else "Block ${peer?.displayName ?: ""}",
                     onClick = { confirm = if (conv.isGroup) "leave" else "block" },
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    fill = LocalBants.current.card,
+                    content = MaterialTheme.colorScheme.error,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                ) { Text(if (conv.isGroup) "Leave group" else "Block ${peer?.displayName ?: ""}") }
+                )
                 Spacer(Modifier.size(32.dp))
             }
         }
@@ -222,6 +224,8 @@ fun ChatInfoScreen(convId: Long, nav: Navigator) {
             title = { Text("Rename group") },
             text = {
                 OutlinedTextField(
+                    shape = FieldShape,
+                    colors = chunkyFieldColors(),
                     value = newName,
                     onValueChange = { newName = it.take(60) },
                     singleLine = true,
@@ -274,9 +278,9 @@ fun AddMembersScreen(convId: Long, nav: Navigator) {
     val scope = rememberCoroutineScope()
 
     Scaffold(topBar = {
-        TopAppBar(
-            title = { Text("Add members") },
-            navigationIcon = { BackButton(nav) },
+        ChunkyTopBar(
+            title = "Add members",
+            nav = nav,
             actions = {
                 TextButton(
                     enabled = selected.isNotEmpty() && !busy,

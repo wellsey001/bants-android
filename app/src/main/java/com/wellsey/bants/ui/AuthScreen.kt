@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -85,12 +86,12 @@ fun AuthScreen() {
     ) {
         Spacer(Modifier.height(24.dp))
         Box(
-            Modifier.size(96.dp).clip(RoundedCornerShape(24.dp)).background(BantsPurple),
+            Modifier.size(96.dp).chunky(RoundedCornerShape(26.dp), BantsPurple, LocalBants.current.outline, shadow = 5.dp),
             contentAlignment = Alignment.Center,
         ) {
             Image(painterResource(R.drawable.ic_launcher_foreground), contentDescription = "Bants logo", modifier = Modifier.size(144.dp))
         }
-        Text("bants", fontSize = 44.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+        Sticker("bants", size = 48.sp, modifier = Modifier.padding(top = 6.dp))
         Text(
             "Chat rubbish with your mates.",
             style = MaterialTheme.typography.bodyLarge,
@@ -98,12 +99,14 @@ fun AuthScreen() {
         )
         Spacer(Modifier.height(4.dp))
 
-        TabRow(selectedTabIndex = if (register) 1 else 0) {
-            Tab(selected = !register, onClick = { register = false; error = null }, text = { Text("Log in") })
-            Tab(selected = register, onClick = { register = true; error = null }, text = { Text("Sign up") })
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ChunkyChip("Log in", !register) { register = false; error = null }
+            ChunkyChip("Sign up", register) { register = true; error = null }
         }
 
         OutlinedTextField(
+            shape = FieldShape,
+            colors = chunkyFieldColors(),
             value = username,
             onValueChange = { username = it.trim() },
             label = { Text("Username") },
@@ -113,6 +116,8 @@ fun AuthScreen() {
         )
         if (register) {
             OutlinedTextField(
+                shape = FieldShape,
+                colors = chunkyFieldColors(),
                 value = displayName,
                 onValueChange = { displayName = it },
                 label = { Text("Display name (what friends see)") },
@@ -122,6 +127,8 @@ fun AuthScreen() {
             )
         }
         OutlinedTextField(
+            shape = FieldShape,
+            colors = chunkyFieldColors(),
             value = password,
             onValueChange = { password = it },
             label = { Text("Password") },
@@ -135,6 +142,8 @@ fun AuthScreen() {
         )
         if (needsInvite) {
             OutlinedTextField(
+                shape = FieldShape,
+                colors = chunkyFieldColors(),
                 value = invite,
                 onValueChange = { invite = it },
                 label = { Text("Invite code") },
@@ -148,7 +157,8 @@ fun AuthScreen() {
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
-        Button(
+        ChunkyButton(
+            if (register) "Create account" else "Log in",
             onClick = {
                 scope.launch {
                     busy = true
@@ -164,18 +174,18 @@ fun AuthScreen() {
                     }
                 }
             },
-            enabled = !busy && !closed && username.length >= 3 && password.isNotEmpty(),
-            modifier = Modifier.fillMaxWidth().height(52.dp),
-        ) {
-            if (busy) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-            else Text(if (register) "Create account" else "Log in", fontSize = 16.sp)
-        }
+            enabled = !closed && username.length >= 3 && password.isNotEmpty(),
+            busy = busy,
+            modifier = Modifier.fillMaxWidth(),
+        )
 
         TextButton(onClick = { showServer = !showServer }) {
             Text("Server: ${server.removePrefix("https://").removePrefix("http://")}")
         }
         if (showServer) {
             OutlinedTextField(
+                shape = FieldShape,
+                colors = chunkyFieldColors(),
                 value = server,
                 onValueChange = { server = it },
                 label = { Text("Server address") },
