@@ -33,9 +33,11 @@ android {
             create("bants") {
                 storeFile = keystore
                 storeType = "PKCS12"
-                storePassword = System.getenv("BANTS_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("BANTS_KEY_ALIAS") ?: "bants"
-                keyPassword = System.getenv("BANTS_KEY_PASSWORD") ?: System.getenv("BANTS_KEYSTORE_PASSWORD")
+                // PKCS12 keys share the store's password; trim in case a secret was pasted with a stray space.
+                val pw = System.getenv("BANTS_KEYSTORE_PASSWORD").trim()
+                storePassword = pw
+                keyAlias = System.getenv("BANTS_KEY_ALIAS")?.trim()?.ifEmpty { null } ?: "bants"
+                keyPassword = pw
             }
         }
     }

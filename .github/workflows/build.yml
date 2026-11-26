@@ -31,7 +31,7 @@ jobs:
             echo "::error::Add the BANTS_KEYSTORE_BASE64, BANTS_KEYSTORE_PASSWORD, BANTS_KEY_ALIAS and BANTS_KEY_PASSWORD secrets first"
             exit 1
           fi
-          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
+          echo "$KEYSTORE_B64" | tr -d " \r\n" | base64 -d > "$RUNNER_TEMP/release.p12"
           echo "BANTS_KEYSTORE_FILE=$RUNNER_TEMP/release.p12" >> "$GITHUB_ENV"
 
       - name: Build
