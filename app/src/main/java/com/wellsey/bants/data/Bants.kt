@@ -454,8 +454,8 @@ object Bants {
         enqueue(newItem(convId, "audio", replyTo).copy(file = file.absolutePath, mime = "audio/mp4", filename = "Voice note.m4a"))
     }
 
-    fun sendGif(convId: Long, gif: Gif, replyTo: Long? = null) {
-        enqueue(newItem(convId, "gif", replyTo).copy(gifUrl = gif.url, gifPreview = gif.preview))
+    fun sendGif(convId: Long, gif: Gif, replyTo: Long? = null, caption: String = "") {
+        enqueue(newItem(convId, "gif", replyTo).copy(gifUrl = gif.url, gifPreview = gif.preview, body = caption.trim()))
     }
 
     fun sendSticker(convId: Long, mediaId: String, replyTo: Long? = null) {
@@ -541,6 +541,7 @@ object Bants {
                     api.post<Message>("/api/conversations/${current.conversationId}/gif", buildJsonObject {
                         put("clientId", current.clientId)
                         put("url", current.gifUrl)
+                        if (current.body.isNotBlank()) put("body", current.body)
                         current.replyTo?.let { put("replyTo", it) }
                     })
                 }

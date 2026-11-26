@@ -2,6 +2,9 @@
 
 package com.wellsey.bants.ui
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Animatable
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -166,6 +169,11 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
     var editing by remember { mutableStateOf<Message?>(null) }
     var replyingTo by remember { mutableStateOf<Message?>(null) }
     var unsending by remember { mutableStateOf<Message?>(null) }
+    // New messages that land while you're looking get slapped on like stickers (once each).
+    val openedAt = remember(convId) { System.currentTimeMillis() }
+    val slapped = remember(convId) { mutableSetOf<Long>() }
+    // A GIF picked from the sheet, waiting for an optional message before it's sent.
+    var pendingGif by remember { mutableStateOf<com.wellsey.bants.data.Gif?>(null) }
     var viewer by remember { mutableStateOf<String?>(null) }
     var video by remember { mutableStateOf<Message?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
@@ -274,6 +282,14 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
     fun send() {
         val t = text
         val e = editing
+        val gif = pendingGif
+        if (gif != null && e == null) {
+            field = TextFieldValue("")
+            pendingGif = null
+            Bants.sendGif(convId, gif, replyingTo?.id, t)
+            replyingTo = null
+            return
+        }
         if (t.isBlank()) return
         field = TextFieldValue("")
         editing = null
@@ -374,6 +390,24 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
                     } else if (quoted != null) {
                         ComposerBanner(Icons.AutoMirrored.Filled.Reply, "Replying to ${nameOf(quoted.senderId)}", quoted.preview()) { replyingTo = null }
                     }
+                    pendingGif?.let { g ->
+                        Box(Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp)) {
+                            AsyncImage(
+                                model = g.preview.ifBlank { g.url },
+                                contentDescription = "Selected GIF",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .height(120.dp)
+                                    .widthIn(min = 90.dp, max = 220.dp)
+                                    .chunky(RoundedCornerShape(14.dp), LocalBants.current.card, LocalBants.current.outline, shadow = 3.dp),
+                            )
+                            ChunkyIconButton(
+                                Icons.Default.Close, "Remove GIF", { pendingGif = null },
+                                fill = Color.White, tint = BantsInk, size = 30.dp,
+                                modifier = Modifier.align(Alignment.TopEnd).offset(x = 8.dp, y = (-8).dp),
+                            )
+                        }
+                    }
                     val mentionQuery = if (conv.isGroup) Regex("(^|\\s)@([A-Za-z0-9_.]{0,24})$").find(text.substring(0, field.selection.end.coerceIn(0, text.length)))?.groupValues?.get(2) else null
                     val suggestions = if (mentionQuery == null) emptyList() else conv.members.map { it.user }.filter {
                         it.id != myId && (it.username.startsWith(mentionQuery, true) || it.displayName.startsWith(mentionQuery, true))
@@ -451,7 +485,7 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
                                         }
                                     }
                                 } else null,
-                                placeholder = { Text("Say something cheeky…") },
+                                placeholder = { Text(if (pendingGif != null) "Add a message, or just send it…" else "Say something cheeky…") },
                                 maxLines = 5,
                                 shape = FieldShape,
                                 colors = chunkyFieldColors(),
@@ -460,7 +494,7 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
                             )
                         }
                         Spacer(Modifier.width(6.dp))
-                        if (text.isNotBlank() || editing != null) {
+                        if (text.isNotBlank() || editing != null || pendingGif != null) {
                             ChunkyIconButton(
                                 if (editing != null) Icons.Default.Done else Icons.AutoMirrored.Filled.Send,
                                 "Send",
@@ -469,7 +503,7 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
                                 tint = Color.White,
                                 size = 52.dp,
                                 shadow = 4.dp,
-                                enabled = text.isNotBlank(),
+                                enabled = text.isNotBlank() || (pendingGif != null && editing == null),
                                 modifier = Modifier.padding(bottom = 3.dp),
                             )
                         } else {
@@ -528,8 +562,10 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
                         val showSender = conv.isGroup && m.senderId != myId &&
                             (older == null || older.senderId != m.senderId || older.kind == "system")
                         val quoted = m.replyTo?.let { byId[it] }
+                        val slapIn = m.senderId != myId && m.id > 0 && m.createdAt >= openedAt - 2_000 && slapped.add(m.id)
                         MessageBubble(
                             m = m,
+                            slapIn = slapIn,
                             conv = conv,
                             myId = myId,
                             showSender = showSender,
@@ -605,8 +641,7 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
             onDismiss = { pickerOpen = false },
             onGif = { gif ->
                 pickerOpen = false
-                Bants.sendGif(convId, gif, replyingTo?.id)
-                replyingTo = null
+                pendingGif = gif
             },
             onSticker = { media ->
                 pickerOpen = false
@@ -672,6 +707,7 @@ private fun DayChip(text: String) {
 @Composable
 private fun MessageBubble(
     m: Message,
+    slapIn: Boolean,
     conv: Conversation,
     myId: Long,
     showSender: Boolean,
@@ -715,7 +751,9 @@ private fun MessageBubble(
         horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
     ) {
         val bubblePress = remember { MutableInteractionSource() }
-        Box(Modifier.offset { IntOffset(shownX.roundToInt(), 0) }) {
+        val slap = remember { Animatable(if (slapIn) 0f else 1f) }
+        LaunchedEffect(Unit) { if (slap.value < 1f) slap.animateTo(1f, tween(650, easing = LinearEasing)) }
+        Box(Modifier.offset { IntOffset(shownX.roundToInt(), 0) }.stickerSlap { slap.value }) {
             if (shownX > 20f) {
                 Icon(
                     Icons.AutoMirrored.Filled.Reply,

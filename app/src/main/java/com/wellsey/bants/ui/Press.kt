@@ -135,3 +135,27 @@ fun Modifier.pressScale(source: InteractionSource, squash: Float = 0.06f, buzz: 
         scaleY = s
     }
 }
+
+/**
+ * "Sticker slap" for messages arriving while the chat is open: flies in tilted and a bit big,
+ * lands, then wobbles flat. [progress] runs 0 → 1 over the animation.
+ */
+fun Modifier.stickerSlap(progress: () -> Float): Modifier = graphicsLayer {
+    val p = progress()
+    if (p >= 1f) return@graphicsLayer
+    fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t
+    fun seg(from: Float, to: Float) = ((p - from) / (to - from)).coerceIn(0f, 1f)
+    val fly = seg(0f, 0.5f).let { 1f - (1f - it) * (1f - it) * (1f - it) } // ease out
+    var x = lerp(-60f, 4f, fly)
+    var rot = lerp(-14f, 5f, fly)
+    val s = lerp(1.2f, 1f, fly)
+    alpha = (p / 0.25f).coerceAtMost(1f)
+    if (p > 0.5f) { val t = seg(0.5f, 0.7f); x = lerp(4f, 0f, t); rot = lerp(5f, -3f, t) }
+    if (p > 0.7f) rot = lerp(-3f, 1.5f, seg(0.7f, 0.85f))
+    if (p > 0.85f) rot = lerp(1.5f, 0f, seg(0.85f, 1f))
+    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 1f)
+    translationX = x * density
+    rotationZ = rot
+    scaleX = s
+    scaleY = s
+}
