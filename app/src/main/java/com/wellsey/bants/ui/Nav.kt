@@ -26,6 +26,8 @@ sealed interface Screen {
     data object Requests : Screen
     data object NewGroup : Screen
     data object Profile : Screen
+    data class ChatInfo(val id: Long) : Screen
+    data class AddMembers(val id: Long) : Screen
 }
 
 /** A tiny back stack: enough for this app without pulling in a navigation library. */
@@ -68,6 +70,8 @@ fun BantsRoot(openConversation: MutableStateFlow<Long?>) {
     }
 
     AskForNotifications()
+    val context = LocalContext.current
+    LaunchedEffect(Unit) { Bants.notices.collect { toast(context, it) } }
     BackHandler(enabled = nav.stack.size > 1) { nav.back() }
 
     when (val screen = nav.current) {
@@ -78,6 +82,8 @@ fun BantsRoot(openConversation: MutableStateFlow<Long?>) {
         Screen.Requests -> RequestsScreen(nav)
         Screen.NewGroup -> NewGroupScreen(nav)
         Screen.Profile -> ProfileScreen(nav)
+        is Screen.ChatInfo -> key(screen.id) { ChatInfoScreen(screen.id, nav) }
+        is Screen.AddMembers -> key(screen.id) { AddMembersScreen(screen.id, nav) }
     }
 }
 

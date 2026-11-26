@@ -10,7 +10,10 @@ A WhatsApp-style messaging app for your own [Bants server](https://github.com/we
 - Sign up and log in (with an invite code if your server needs one)
 - Add people by **username** (they accept a request) or **friend code** (instant)
 - 1:1 chats and groups
-- Photos, with automatic resizing before upload
+- Photos (resized before upload), videos, files and hold-to-record voice notes
+- Swipe a message to reply; long-press to react with an emoji
+- Group info: members, admins, add or remove people, rename, group picture
+- Chats are saved on the phone, so they open instantly and work offline; messages you send offline go out when you're back online
 - Live delivery, typing indicators, online and last seen
 - Ticks: ✓ sent, ✓✓ delivered, blue ✓✓ read
 - Edit (for 15 minutes) and delete for everyone
@@ -25,6 +28,3 @@ Every push to `main` builds the APK with GitHub Actions and publishes it as a re
 
 ## Coming next
 - Push notifications through Firebase, so messages arrive even when the app is fully closed
-- Voice notes, videos and files
-- Replies and reactions
-- Group info screen

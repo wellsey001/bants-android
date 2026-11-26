@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
 import android.os.Build
+import android.provider.OpenableColumns
 import androidx.exifinterface.media.ExifInterface
 import com.wellsey.bants.Notifications
 import kotlinx.coroutines.CancellationException
@@ -15,8 +16,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -31,14 +34,21 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
+import kotlinx.serialization.serializer
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.IOException
 import java.util.UUID
 
 /**
  * App-wide state and actions. Screens read the StateFlows and call the functions;
- * live updates from the WebSocket are merged in here.
+ * live updates from the WebSocket are merged in here. Chats are saved on the phone,
+ * and unsent messages wait in an outbox until there's a connection.
  */
 object Bants {
     lateinit var appContext: Context
@@ -49,6 +59,7 @@ object Bants {
         private set
     lateinit var realtime: Realtime
         private set
+    private lateinit var store: Store
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -60,24 +71,56 @@ object Bants {
     val contacts = MutableStateFlow<List<User>>(emptyList())
     val requests = MutableStateFlow(Requests())
     val typing = MutableStateFlow<Map<Long, Set<Long>>>(emptyMap())
+    val outbox = MutableStateFlow<List<OutboxItem>>(emptyList())
     val connected: StateFlow<Boolean> get() = realtime.connected
+
+    /** Short messages for the user (shown as toasts). */
+    val notices = MutableSharedFlow<String>(extraBufferCapacity = 8)
 
     @Volatile var activeConversation: Long? = null
     @Volatile var inForeground = false
+    var maxUploadBytes = 50L * 1024 * 1024
+        private set
 
     val myId: Long get() = me.value?.id ?: -1L
 
     private val typingTimers = mutableMapOf<Pair<Long, Long>, Job>()
     private var lastTypingSent = 0L
     private val loadingOlder = mutableSetOf<Long>()
+    private var saveJob: Job? = null
+    private var outboxJob: Job? = null
 
     fun init(context: Context) {
         appContext = context.applicationContext
         session = Session(appContext)
         api = Api(session)
         realtime = Realtime(api, session, scope)
+        store = Store(appContext)
         me.value = session.user
+
+        if (session.token != null) {
+            store.loadCache()?.let { c ->
+                if (c.me != null) me.value = c.me
+                conversations.value = c.conversations.associateBy { it.id }
+                contacts.value = c.contacts
+                requests.value = c.requests
+                messages.value = c.messages
+                hasMore.value = c.hasMore
+            }
+            outbox.value = store.loadOutbox().map { it.copy(failed = it.failed) }
+        }
+
         scope.launch { realtime.events.collect { handle(it) } }
+        scope.launch { realtime.connected.collect { if (it) kickOutbox() } }
+        scope.launch {
+            merge(me, conversations, contacts, requests, messages).collect { if (loggedIn.value) scheduleSave() }
+        }
+        scope.launch {
+            outbox.collect { items ->
+                if (loggedIn.value) withContext(Dispatchers.IO) { runCatching { store.saveOutbox(items) } }
+            }
+        }
+
         if (session.token != null) {
             loggedIn.value = true
             startSession()
@@ -87,11 +130,15 @@ object Bants {
     private fun startSession() {
         realtime.start()
         scope.launch { runCatching { refreshAll() } }
+        kickOutbox()
     }
 
     fun onForeground() {
         inForeground = true
-        if (loggedIn.value) realtime.reconnectNow()
+        if (loggedIn.value) {
+            realtime.reconnectNow()
+            kickOutbox()
+        }
         activeConversation?.let { markRead(it) }
     }
 
@@ -103,11 +150,36 @@ object Bants {
         throw e
     }
 
+    // ───────────── saving on the phone ─────────────
+
+    private fun scheduleSave() {
+        saveJob?.cancel()
+        saveJob = scope.launch {
+            delay(1_500)
+            val snap = snapshot()
+            withContext(Dispatchers.IO) { runCatching { store.saveCache(snap) } }
+        }
+    }
+
+    private fun snapshot(): CacheSnapshot {
+        val keep = 150
+        val more = hasMore.value.toMutableMap()
+        val trimmed = messages.value.mapValues { (id, list) ->
+            if (list.size > keep) {
+                more[id] = true
+                list.takeLast(keep)
+            } else list
+        }
+        return CacheSnapshot(me.value, conversations.value.values.toList(), contacts.value, requests.value, trimmed, more)
+    }
+
     // ───────────── account ─────────────
 
     suspend fun serverInfo(url: String): ServerInfo {
         session.serverUrl = url
-        return api.get<ServerInfo>("/api/server")
+        val info = api.get<ServerInfo>("/api/server")
+        if (info.maxUploadBytes > 0) maxUploadBytes = info.maxUploadBytes
+        return info
     }
 
     suspend fun login(username: String, password: String) {
@@ -146,6 +218,9 @@ object Bants {
     }
 
     fun signOutLocal() {
+        loggedIn.value = false
+        saveJob?.cancel()
+        outboxJob?.cancel()
         realtime.stop()
         session.token = null
         session.user = null
@@ -156,7 +231,8 @@ object Bants {
         contacts.value = emptyList()
         requests.value = Requests()
         typing.value = emptyMap()
-        loggedIn.value = false
+        outbox.value = emptyList()
+        store.clear()
         Notifications.cancelAll(appContext)
     }
 
@@ -173,8 +249,7 @@ object Bants {
     }
 
     suspend fun uploadAvatar(uri: Uri) {
-        val (bytes, mime) = withContext(Dispatchers.IO) { compressImage(uri, maxSide = 640) }
-        val media = upload(bytes, mime, "avatar.jpg")
+        val media = uploadPhoto(uri)
         val u = call { api.patch<User>("/api/me", buildJsonObject { put("avatar", media.id) }) }
         setMe(u)
     }
@@ -195,6 +270,7 @@ object Bants {
         launch { refreshConversations() }
         launch { refreshContacts() }
         launch { refreshRequests() }
+        launch { runCatching { serverInfo(session.serverUrl) } }
     }
 
     suspend fun refreshMe() = setMe(call { api.get<User>("/api/me") })
@@ -202,6 +278,14 @@ object Bants {
     suspend fun refreshConversations() {
         val list = call { api.get<List<Conversation>>("/api/conversations") }
         conversations.value = list.associateBy { it.id }
+        // Forget saved messages for chats we're no longer in.
+        val ids = list.map { it.id }.toSet()
+        if (messages.value.keys.any { it !in ids }) messages.update { all -> all.filterKeys { it in ids } }
+    }
+
+    suspend fun refreshConversation(convId: Long) {
+        val c = call { api.get<Conversation>("/api/conversations/$convId") }
+        conversations.update { it + (c.id to c) }
     }
 
     suspend fun refreshContacts() {
@@ -212,34 +296,28 @@ object Bants {
         requests.value = call { api.get<Requests>("/api/contacts/requests") }
     }
 
-    private fun realMessages(list: List<Message>) = list.filter { !it.pending && !it.failed && it.id > 0 }
-
-    /** Merges messages into a chat, replacing any pending copies with the same clientId. */
+    /** Merges messages from the server into a chat and clears any outbox copies of them. */
     private fun putMessages(convId: Long, incoming: List<Message>) {
-        if (incoming.isEmpty() && messages.value.containsKey(convId)) return
-        messages.update { all ->
-            val clientIds = incoming.mapNotNull { it.clientId }.toSet()
-            val byId = LinkedHashMap<Long, Message>()
-            all[convId].orEmpty()
-                .filterNot { (it.pending || it.failed) && it.clientId != null && it.clientId in clientIds }
-                .forEach { byId[it.id] = it }
-            incoming.forEach { byId[it.id] = it }
-            val sorted = byId.values.sortedWith(
-                compareBy<Message> { it.pending || it.failed }.thenBy { if (it.id < 0) -it.id else it.id },
-            )
-            all + (convId to sorted)
+        if (incoming.isEmpty()) {
+            if (!messages.value.containsKey(convId)) messages.update { it + (convId to emptyList()) }
+            return
         }
-    }
-
-    private fun replaceLocal(convId: Long, m: Message) {
         messages.update { all ->
-            val list = all[convId] ?: return@update all
-            all + (convId to list.map { if (it.id == m.id) m else it })
+            val byId = LinkedHashMap<Long, Message>()
+            all[convId].orEmpty().forEach { byId[it.id] = it }
+            incoming.forEach { byId[it.id] = it }
+            all + (convId to byId.values.sortedBy { it.id })
+        }
+        val sentIds = incoming.mapNotNull { it.clientId }.toSet()
+        if (outbox.value.any { it.clientId in sentIds }) {
+            val done = outbox.value.filter { it.clientId in sentIds }
+            outbox.update { list -> list.filterNot { it.clientId in sentIds } }
+            done.forEach { item -> item.file?.let { File(it).delete() } }
         }
     }
 
     suspend fun loadMessages(convId: Long) {
-        val lastReal = realMessages(messages.value[convId].orEmpty()).maxOfOrNull { it.id }
+        val lastReal = messages.value[convId]?.maxOfOrNull { it.id }
         if (lastReal == null) {
             val page = call { api.get<MessagesPage>("/api/conversations/$convId/messages?limit=50") }
             putMessages(convId, page.messages)
@@ -258,7 +336,7 @@ object Bants {
     suspend fun loadOlder(convId: Long) {
         if (hasMore.value[convId] != true || !loadingOlder.add(convId)) return
         try {
-            val first = realMessages(messages.value[convId].orEmpty()).minOfOrNull { it.id } ?: return
+            val first = messages.value[convId]?.minOfOrNull { it.id } ?: return
             val page = call { api.get<MessagesPage>("/api/conversations/$convId/messages?before=$first&limit=50") }
             putMessages(convId, page.messages)
             hasMore.update { it + (convId to page.hasMore) }
@@ -267,68 +345,179 @@ object Bants {
         }
     }
 
-    // ───────────── sending ─────────────
+    // ───────────── sending (via the outbox) ─────────────
 
-    private fun newPending(convId: Long, kind: String, body: String, localUri: String?) = Message(
-        id = -System.nanoTime(),
+    private fun newItem(convId: Long, kind: String, replyTo: Long?) = OutboxItem(
+        tempId = -System.nanoTime(),
         conversationId = convId,
-        senderId = myId,
         clientId = UUID.randomUUID().toString(),
         kind = kind,
-        body = body,
+        replyTo = replyTo,
         createdAt = System.currentTimeMillis(),
-        pending = true,
-        localUri = localUri,
     )
 
-    fun sendText(convId: Long, text: String) {
+    fun sendText(convId: Long, text: String, replyTo: Long? = null) {
         val body = text.trim()
         if (body.isEmpty()) return
-        val temp = newPending(convId, "text", body, null)
-        putMessages(convId, listOf(temp))
-        deliver(temp)
+        enqueue(newItem(convId, "text", replyTo).copy(body = body))
     }
 
-    fun sendImage(convId: Long, uri: Uri) {
-        val temp = newPending(convId, "image", "", uri.toString())
-        putMessages(convId, listOf(temp))
-        deliver(temp)
-    }
-
-    fun retry(m: Message) {
-        val again = m.copy(pending = true, failed = false)
-        replaceLocal(m.conversationId, again)
-        deliver(again)
-    }
-
-    private fun deliver(temp: Message) {
+    /** Photos are shrunk first; videos and other files are sent as they are. */
+    fun sendMedia(convId: Long, uri: Uri, replyTo: Long? = null) {
         scope.launch {
             try {
-                var mediaId: String? = null
-                if (temp.localUri != null) {
-                    val (bytes, mime) = withContext(Dispatchers.IO) { compressImage(Uri.parse(temp.localUri)) }
-                    mediaId = upload(bytes, mime, "photo.jpg").id
-                }
-                val sent = call {
-                    api.post<Message>("/api/conversations/${temp.conversationId}/messages", buildJsonObject {
-                        put("clientId", temp.clientId)
-                        if (temp.body.isNotEmpty()) put("body", temp.body)
-                        if (mediaId != null) put("media", mediaId)
-                    })
-                }
-                putMessages(temp.conversationId, listOf(sent))
-                onNewMessage(sent, notify = false)
+                val item = withContext(Dispatchers.IO) { prepareMedia(convId, uri, replyTo) }
+                if (item != null) enqueue(item)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                replaceLocal(temp.conversationId, temp.copy(pending = false, failed = true))
+                notices.tryEmit(e.message ?: "Couldn't attach that")
             }
         }
     }
 
-    suspend fun upload(bytes: ByteArray, mime: String, filename: String): MediaUpload = call {
-        val text = api.raw("POST", "/api/media", bytes.toRequestBody(mime.toMediaType()), mapOf("X-Filename" to filename))
+    fun sendVoice(convId: Long, file: File, replyTo: Long? = null) {
+        enqueue(newItem(convId, "audio", replyTo).copy(file = file.absolutePath, mime = "audio/mp4", filename = "Voice note.m4a"))
+    }
+
+    fun newOutboxFile(extension: String): File = File(store.outboxDir, "${UUID.randomUUID()}.$extension")
+
+    private fun prepareMedia(convId: Long, uri: Uri, replyTo: Long?): OutboxItem? {
+        val resolver = appContext.contentResolver
+        val mime = resolver.getType(uri) ?: "application/octet-stream"
+        var name = "file"
+        var size = -1L
+        resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { c ->
+            if (c.moveToFirst()) {
+                c.getString(0)?.let { name = it }
+                if (!c.isNull(1)) size = c.getLong(1)
+            }
+        }
+        val isPhoto = mime.startsWith("image/") && mime != "image/gif"
+        if (!isPhoto && size > maxUploadBytes) {
+            notices.tryEmit("That's too big to send (max ${maxUploadBytes / (1024 * 1024)} MB)")
+            return null
+        }
+        val kind = when {
+            mime.startsWith("image/") -> "image"
+            mime.startsWith("video/") -> "video"
+            mime.startsWith("audio/") -> "audio"
+            else -> "file"
+        }
+        val base = newItem(convId, kind, replyTo)
+        return if (isPhoto) {
+            val (bytes, jpeg) = compressImage(uri)
+            val f = newOutboxFile("jpg").apply { writeBytes(bytes) }
+            base.copy(file = f.absolutePath, mime = jpeg, filename = name.substringBeforeLast('.') + ".jpg")
+        } else {
+            val ext = name.substringAfterLast('.', "bin").take(8)
+            val f = newOutboxFile(ext)
+            resolver.openInputStream(uri)?.use { input -> f.outputStream().use { input.copyTo(it) } }
+                ?: throw ApiException(0, "Couldn't read that file")
+            if (f.length() > maxUploadBytes) {
+                f.delete()
+                notices.tryEmit("That's too big to send (max ${maxUploadBytes / (1024 * 1024)} MB)")
+                return null
+            }
+            base.copy(file = f.absolutePath, mime = mime, filename = name)
+        }
+    }
+
+    private fun enqueue(item: OutboxItem) {
+        outbox.update { it + item }
+        kickOutbox()
+    }
+
+    fun retry(m: Message) {
+        outbox.update { list -> list.map { if (it.clientId == m.clientId) it.copy(failed = false, error = null) else it } }
+        kickOutbox()
+    }
+
+    fun discard(m: Message) {
+        val item = outbox.value.firstOrNull { it.clientId == m.clientId } ?: return
+        outbox.update { list -> list.filterNot { it.clientId == m.clientId } }
+        item.file?.let { File(it).delete() }
+    }
+
+    /** Sends whatever is waiting, one at a time, oldest first. Stops if we go offline. */
+    fun kickOutbox() {
+        if (!loggedIn.value || outboxJob?.isActive == true) return
+        outboxJob = scope.launch {
+            while (true) {
+                val item = outbox.value.firstOrNull { !it.failed } ?: break
+                if (!sendOne(item)) break
+            }
+        }
+    }
+
+    /** Returns false if we're offline and should wait for a connection. */
+    private suspend fun sendOne(item: OutboxItem): Boolean {
+        var current = item
+        try {
+            if (current.file != null && current.mediaId == null) {
+                val f = File(current.file!!)
+                if (!f.exists()) throw ApiException(400, "The file isn't there any more")
+                val media = upload(f.asRequestBody((current.mime ?: "application/octet-stream").toMediaType()), current.filename ?: f.name)
+                current = current.copy(mediaId = media.id)
+                val updated = current
+                outbox.update { list -> list.map { if (it.clientId == updated.clientId) updated else it } }
+            }
+            val sent = call {
+                api.post<Message>("/api/conversations/${current.conversationId}/messages", buildJsonObject {
+                    put("clientId", current.clientId)
+                    if (current.body.isNotEmpty()) put("body", current.body)
+                    current.mediaId?.let { put("media", it) }
+                    current.replyTo?.let { put("replyTo", it) }
+                })
+            }
+            putMessages(sent.conversationId, listOf(sent))
+            onNewMessage(sent, notify = false)
+            return true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: ApiException) {
+            if (e.status == 0 || e.status >= 500) return false
+            markFailed(current, e.message)
+            return true
+        } catch (e: Exception) {
+            markFailed(current, e.message)
+            return true
+        }
+    }
+
+    private fun markFailed(item: OutboxItem, error: String?) {
+        outbox.update { list -> list.map { if (it.clientId == item.clientId) item.copy(failed = true, error = error) else it } }
+    }
+
+    private suspend fun upload(body: RequestBody, filename: String): MediaUpload = call {
+        val text = api.raw("POST", "/api/media", body, mapOf("X-Filename" to Uri.encode(filename)))
         api.json.decodeFromString(MediaUpload.serializer(), text)
+    }
+
+    private suspend fun uploadPhoto(uri: Uri): MediaUpload {
+        val (bytes, mime) = withContext(Dispatchers.IO) { compressImage(uri, maxSide = 640) }
+        return upload(bytes.toRequestBody(mime.toMediaType()), "photo.jpg")
+    }
+
+    /** Downloads (once) and returns a local copy of a voice note, video or file. */
+    suspend fun mediaFile(id: String, filename: String?): File = withContext(Dispatchers.IO) {
+        val safe = (filename?.takeIf { it.isNotBlank() } ?: id).replace(Regex("[^A-Za-z0-9._ ()-]"), "_")
+        val dir = File(appContext.cacheDir, "media/$id").apply { mkdirs() }
+        val target = File(dir, safe)
+        if (target.exists() && target.length() > 0) return@withContext target
+        val request = Request.Builder().url("${session.serverUrl}/api/media/$id").build()
+        val response = try {
+            api.authedHttp.newCall(request).execute()
+        } catch (e: IOException) {
+            throw ApiException(0, "Can't reach the server")
+        }
+        response.use { res ->
+            if (!res.isSuccessful) throw ApiException(res.code, "Couldn't download that")
+            val tmp = File(dir, "$safe.part")
+            res.body?.byteStream()?.use { input -> tmp.outputStream().use { input.copyTo(it) } }
+            tmp.renameTo(target)
+        }
+        target
     }
 
     suspend fun editMessage(m: Message, body: String) {
@@ -337,16 +526,35 @@ object Bants {
     }
 
     suspend fun deleteMessage(m: Message) {
-        if (m.failed) {
-            messages.update { all -> all + (m.conversationId to all[m.conversationId].orEmpty().filter { it.id != m.id }) }
+        if (m.pending || m.failed) {
+            discard(m)
             return
         }
         val updated = call { api.delete<Message>("/api/messages/${m.id}") }
         putMessages(updated.conversationId, listOf(updated))
     }
 
+    /** Toggles your reaction. Shows straight away and corrects itself if the server disagrees. */
+    suspend fun react(m: Message, emoji: String) {
+        val mine = m.reactions.firstOrNull { myId in it.userIds }?.emoji
+        val without = m.reactions.map { it.copy(userIds = it.userIds - myId) }.filter { it.userIds.isNotEmpty() }
+        val updated = when {
+            mine == emoji -> without
+            without.any { it.emoji == emoji } -> without.map { if (it.emoji == emoji) it.copy(userIds = it.userIds + myId) else it }
+            else -> without + Reaction(emoji, listOf(myId))
+        }
+        putMessages(m.conversationId, listOf(m.copy(reactions = updated)))
+        try {
+            val fromServer = call { api.post<Message>("/api/messages/${m.id}/react", buildJsonObject { put("emoji", emoji) }) }
+            putMessages(m.conversationId, listOf(fromServer))
+        } catch (e: Exception) {
+            putMessages(m.conversationId, listOf(m))
+            throw e
+        }
+    }
+
     fun markRead(convId: Long) {
-        val lastId = realMessages(messages.value[convId].orEmpty()).maxOfOrNull { it.id } ?: return
+        val lastId = messages.value[convId]?.maxOfOrNull { it.id } ?: return
         val conv = conversations.value[convId] ?: return
         val mine = conv.members.firstOrNull { it.user.id == myId }
         if (conv.unreadCount == 0 && (mine?.lastRead ?: 0) >= lastId) return
@@ -380,7 +588,7 @@ object Bants {
         })
     }
 
-    // ───────────── contacts & chats ─────────────
+    // ───────────── contacts ─────────────
 
     suspend fun addContact(username: String? = null, friendCode: String? = null): AddContactResult {
         val r = call {
@@ -408,6 +616,13 @@ object Bants {
         runCatching { refreshRequests() }
     }
 
+    suspend fun block(userId: Long) {
+        call { api.post<JsonObject>("/api/blocks/$userId") }
+        runCatching { refreshContacts() }
+    }
+
+    // ───────────── chats & groups ─────────────
+
     suspend fun startDirect(userId: Long): Long {
         val c = call {
             api.post<Conversation>("/api/conversations", buildJsonObject {
@@ -431,20 +646,40 @@ object Bants {
         return c.id
     }
 
-    suspend fun setMuted(convId: Long, muted: Boolean) {
-        val c = call { api.patch<Conversation>("/api/conversations/$convId", buildJsonObject { put("muted", muted) }) }
-        conversations.update { it + (c.id to c) }
+    private fun upsert(c: Conversation) = conversations.update { it + (c.id to c) }
+
+    suspend fun setMuted(convId: Long, muted: Boolean) =
+        upsert(call { api.patch<Conversation>("/api/conversations/$convId", buildJsonObject { put("muted", muted) }) })
+
+    suspend fun renameGroup(convId: Long, name: String) =
+        upsert(call { api.patch<Conversation>("/api/conversations/$convId", buildJsonObject { put("name", name.trim()) }) })
+
+    suspend fun setGroupPhoto(convId: Long, uri: Uri) {
+        val media = uploadPhoto(uri)
+        upsert(call { api.patch<Conversation>("/api/conversations/$convId", buildJsonObject { put("avatar", media.id) }) })
     }
+
+    suspend fun addMembers(convId: Long, userIds: List<Long>) = upsert(
+        call {
+            api.post<Conversation>("/api/conversations/$convId/members", buildJsonObject {
+                put("userIds", JsonArray(userIds.map { JsonPrimitive(it) }))
+            })
+        },
+    )
+
+    suspend fun removeMember(convId: Long, userId: Long) {
+        call { api.delete<JsonObject>("/api/conversations/$convId/members/$userId") }
+        runCatching { refreshConversation(convId) }
+    }
+
+    suspend fun setAdmin(convId: Long, userId: Long, admin: Boolean) = upsert(
+        call { api.post<Conversation>("/api/conversations/$convId/admins/$userId", buildJsonObject { put("admin", admin) }) },
+    )
 
     suspend fun leaveGroup(convId: Long) {
         call { api.delete<JsonObject>("/api/conversations/$convId/members/$myId") }
         conversations.update { it - convId }
         messages.update { it - convId }
-    }
-
-    suspend fun block(userId: Long) {
-        call { api.post<JsonObject>("/api/blocks/$userId") }
-        runCatching { refreshContacts() }
     }
 
     // ───────────── live events ─────────────
@@ -456,6 +691,7 @@ object Bants {
                 "ready" -> scope.launch {
                     runCatching { refreshAll() }
                     messages.value.keys.forEach { id -> runCatching { loadMessages(id) } }
+                    kickOutbox()
                 }
                 "message.new" -> {
                     val m = decode<Message>(ev["message"])
@@ -493,18 +729,14 @@ object Bants {
                     val u = decode<User>(ev["user"])
                     updateUser(u.id) { old -> u.copy(online = u.online ?: old.online, lastSeen = u.lastSeen ?: old.lastSeen, friendCode = old.friendCode) }
                 }
-                "conversation.updated" -> {
-                    val c = decode<Conversation>(ev["conversation"])
-                    conversations.update { it + (c.id to c) }
-                }
+                "conversation.updated" -> upsert(decode<Conversation>(ev["conversation"]))
                 "conversation.removed" -> {
                     val id = ev.long("conversationId")
                     conversations.update { it - id }
                 }
                 "contact.request", "contact.request.removed" -> scope.launch { runCatching { refreshRequests() } }
                 "contact.added" -> {
-                    val c = decode<Conversation>(ev["conversation"])
-                    conversations.update { it + (c.id to c) }
+                    upsert(decode<Conversation>(ev["conversation"]))
                     scope.launch {
                         runCatching { refreshContacts() }
                         runCatching { refreshRequests() }
@@ -575,7 +807,7 @@ object Bants {
     }
 
     private inline fun <reified T> decode(el: JsonElement?): T =
-        api.json.decodeFromJsonElement(kotlinx.serialization.serializer<T>(), el ?: JsonNull)
+        api.json.decodeFromJsonElement(serializer<T>(), el ?: JsonNull)
 
     private fun JsonObject.str(key: String) = this[key]?.jsonPrimitive?.contentOrNull
     private fun JsonObject.long(key: String) = this[key]?.jsonPrimitive?.longOrNull ?: 0L

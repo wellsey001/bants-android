@@ -28,11 +28,19 @@ data class Message(
     val createdAt: Long = 0,
     val editedAt: Long? = null,
     val deleted: Boolean = false,
+    val reactions: List<Reaction> = emptyList(),
+    val mediaInfo: MediaInfo? = null,
     // Local-only state for messages still on their way to the server.
     @Transient val pending: Boolean = false,
     @Transient val failed: Boolean = false,
     @Transient val localUri: String? = null,
 )
+
+@Serializable
+data class Reaction(val emoji: String, val userIds: List<Long> = emptyList())
+
+@Serializable
+data class MediaInfo(val mime: String = "", val size: Long = 0, val filename: String = "")
 
 @Serializable
 data class Member(
@@ -85,6 +93,50 @@ data class AddContactResult(
     val request: ContactRequest? = null,
 )
 
+/** A message waiting to be sent. Kept on disk so it survives the app closing. */
+@Serializable
+data class OutboxItem(
+    val tempId: Long,
+    val conversationId: Long,
+    val clientId: String,
+    val kind: String,
+    val body: String = "",
+    val file: String? = null,
+    val mime: String? = null,
+    val filename: String? = null,
+    val mediaId: String? = null,
+    val replyTo: Long? = null,
+    val createdAt: Long,
+    val failed: Boolean = false,
+    val error: String? = null,
+)
+
+fun OutboxItem.toMessage(myId: Long) = Message(
+    id = tempId,
+    conversationId = conversationId,
+    senderId = myId,
+    clientId = clientId,
+    kind = kind,
+    body = body,
+    replyTo = replyTo,
+    createdAt = createdAt,
+    mediaInfo = if (file != null) MediaInfo(mime ?: "", java.io.File(file).length(), filename ?: "") else null,
+    pending = !failed,
+    failed = failed,
+    localUri = file?.let { "file://$it" },
+)
+
+/** What's saved on the phone so chats open instantly and work offline. */
+@Serializable
+data class CacheSnapshot(
+    val me: User? = null,
+    val conversations: List<Conversation> = emptyList(),
+    val contacts: List<User> = emptyList(),
+    val requests: Requests = Requests(),
+    val messages: Map<Long, List<Message>> = emptyMap(),
+    val hasMore: Map<Long, Boolean> = emptyMap(),
+)
+
 // ───────────── helpers ─────────────
 
 val Conversation.isGroup: Boolean get() = type == "group"
@@ -102,6 +154,6 @@ fun Message.preview(): String = when {
     kind == "image" -> if (body.isNotBlank()) "📷 $body" else "📷 Photo"
     kind == "video" -> "🎥 Video"
     kind == "audio" -> "🎤 Voice note"
-    kind == "file" -> "📎 File"
+    kind == "file" -> "📎 " + (mediaInfo?.filename?.ifBlank { null } ?: "File")
     else -> body
 }
