@@ -34,6 +34,14 @@ jobs:
           echo "$KEYSTORE_B64" | tr -d " \r\n" | base64 -d > "$RUNNER_TEMP/release.p12"
           echo "BANTS_KEYSTORE_FILE=$RUNNER_TEMP/release.p12" >> "$GITHUB_ENV"
 
+      - name: Check the signing key
+        env:
+          PW: ${{ secrets.BANTS_KEYSTORE_PASSWORD }}
+          ALIAS: ${{ secrets.BANTS_KEY_ALIAS }}
+        run: |
+          echo "password length: ${#PW}, alias length: ${#ALIAS}"
+          keytool -list -v -keystore "$BANTS_KEYSTORE_FILE" -storetype PKCS12 -storepass "$(echo -n "$PW" | tr -d ' \r\n')" | grep -E "Alias name|SHA256:|Owner" || echo "could not open the key store"
+
       - name: Build
         env:
           BANTS_KEYSTORE_PASSWORD: ${{ secrets.BANTS_KEYSTORE_PASSWORD }}
