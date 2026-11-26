@@ -705,6 +705,53 @@ object Bants {
         }
     }
 
+    /** Vote in a poll. [optionIds] is your full choice; empty takes your vote back. */
+    suspend fun vote(m: Message, optionIds: List<Int>) {
+        val poll = m.meta?.poll ?: return
+        val updated = poll.copy(options = poll.options.map { o ->
+            val without = o.voterIds - myId
+            o.copy(voterIds = if (o.id in optionIds) without + myId else without)
+        })
+        putMessages(m.conversationId, listOf(m.copy(meta = m.meta.copy(poll = updated))))
+        try {
+            val fromServer = call {
+                api.post<Message>("/api/messages/${m.id}/vote", buildJsonObject {
+                    put("optionIds", kotlinx.serialization.json.JsonArray(optionIds.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+                })
+            }
+            putMessages(m.conversationId, listOf(fromServer))
+        } catch (e: Exception) {
+            putMessages(m.conversationId, listOf(m))
+            throw e
+        }
+    }
+
+    suspend fun sendPoll(convId: Long, question: String, options: List<String>, multi: Boolean) {
+        val m = call {
+            api.post<Message>("/api/conversations/$convId/messages", buildJsonObject {
+                put("clientId", java.util.UUID.randomUUID().toString())
+                put("poll", buildJsonObject {
+                    put("question", question)
+                    put("multi", multi)
+                    put("options", kotlinx.serialization.json.JsonArray(options.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+                })
+            })
+        }
+        putMessages(convId, listOf(m))
+    }
+
+    suspend fun forward(m: Message, conversationIds: List<Long>): Int {
+        val res = call {
+            api.post<ForwardResult>("/api/messages/${m.id}/forward", buildJsonObject {
+                put("conversationIds", kotlinx.serialization.json.JsonArray(conversationIds.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+            })
+        }
+        res.messages.groupBy { it.conversationId }.forEach { (cid, list) -> putMessages(cid, list) }
+        return res.messages.size
+    }
+
+    suspend fun messageInfo(m: Message): MessageInfo = call { api.get("/api/messages/${m.id}/info") }
+
     fun markRead(convId: Long) {
         val lastId = messages.value[convId]?.maxOfOrNull { it.id } ?: return
         val conv = conversations.value[convId] ?: return

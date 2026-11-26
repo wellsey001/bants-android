@@ -40,7 +40,46 @@ data class Message(
 )
 
 @Serializable
-data class MessageMeta(val mentions: List<Long> = emptyList(), val preview: LinkPreview? = null)
+data class MessageMeta(
+    val mentions: List<Long> = emptyList(),
+    val preview: LinkPreview? = null,
+    val forwarded: Boolean = false,
+    val poll: Poll? = null,
+    val location: Location? = null,
+)
+
+@Serializable
+data class Poll(val question: String, val multi: Boolean = false, val options: List<PollOption> = emptyList())
+
+@Serializable
+data class PollOption(val id: Int, val text: String, val voterIds: List<Long> = emptyList())
+
+@Serializable
+data class Location(
+    val lat: Double,
+    val lng: Double,
+    val accuracy: Double? = null,
+    val label: String? = null,
+    val liveUntil: Long? = null,
+    val updatedAt: Long = 0,
+) {
+    val isLive: Boolean get() = (liveUntil ?: 0) > System.currentTimeMillis()
+}
+
+@Serializable
+data class MessageInfo(val messageId: Long, val sentAt: Long = 0, val members: List<MemberReceipt> = emptyList())
+
+@Serializable
+data class MemberReceipt(
+    val userId: Long,
+    val delivered: Boolean = false,
+    val read: Boolean = false,
+    val deliveredAt: Long? = null,
+    val readAt: Long? = null,
+)
+
+@Serializable
+data class ForwardResult(val messages: List<Message> = emptyList())
 
 @Serializable
 data class LinkPreview(
@@ -96,6 +135,7 @@ data class Conversation(
     val pinned: Boolean = false,
     val archived: Boolean = false,
     val disappearAfter: Long = 0,
+    val streak: Int = 0,
     val unreadCount: Int = 0,
     val lastMessage: Message? = null,
     val members: List<Member> = emptyList(),
@@ -202,5 +242,7 @@ fun Message.preview(): String = when {
     kind == "file" -> "📎 " + (mediaInfo?.filename?.ifBlank { null } ?: "File")
     kind == "sticker" -> "Sticker"
     kind == "image" && mediaInfo?.mime == "image/gif" -> "GIF"
+    kind == "poll" -> "📊 " + (meta?.poll?.question ?: body)
+    kind == "location" -> if (meta?.location?.liveUntil != null) "📍 Live location" else "📍 Location"
     else -> body
 }

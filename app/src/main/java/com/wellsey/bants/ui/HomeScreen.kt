@@ -245,6 +245,15 @@ fun ConversationCard(c: Conversation, myId: Long, someoneTyping: Boolean, onClic
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                if (c.streak >= 2) {
+                    Text(
+                        "🔥${c.streak}",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = b.onCard,
+                        modifier = Modifier.padding(end = 6.dp),
+                    )
+                }
                 if (c.pinned) Icon(Icons.Default.PushPin, contentDescription = "Pinned", tint = b.muted, modifier = Modifier.padding(end = 4.dp).size(15.dp))
                 val time = last?.createdAt ?: c.updatedAt
                 if (time > 0) Text(shortTime(time), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = b.muted)

@@ -49,6 +49,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Forward
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Poll
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -174,6 +177,9 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
     var replyingTo by remember { mutableStateOf<Message?>(null) }
     var unsending by remember { mutableStateOf<Message?>(null) }
     var reactingTo by remember { mutableStateOf<Message?>(null) }
+    var forwarding by remember { mutableStateOf<Message?>(null) }
+    var infoFor by remember { mutableStateOf<Message?>(null) }
+    var pollOpen by remember { mutableStateOf(false) }
     fun react(m: Message, emoji: String) {
         Bants.session.recentReactions = listOf(emoji) + Bants.session.recentReactions.filter { it != emoji }
         scope.launch { runCatching { Bants.react(m, emoji) }.onFailure { toast(context, it.message) } }
@@ -468,6 +474,14 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
                                             filePicker.launch(arrayOf("*/*"))
                                         },
                                     )
+                                    DropdownMenuItem(
+                                        text = { Text("Poll") },
+                                        leadingIcon = { Icon(Icons.Default.Poll, contentDescription = null) },
+                                        onClick = {
+                                            attachOpen = false
+                                            pollOpen = true
+                                        },
+                                    )
                                 }
                             }
                         }
@@ -597,6 +611,8 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
                             onReply = { if (!m.pending && !m.failed && !m.deleted) { replyingTo = m; editing = null } },
                             onReact = { emoji -> react(m, emoji) },
                             onMoreReactions = { reactingTo = m },
+                            onForward = { forwarding = m },
+                            onInfo = { infoFor = m },
                             onRetry = { Bants.retry(m) },
                             onCopy = {
                                 clipboard.setText(AnnotatedString(m.body))
@@ -618,6 +634,15 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
                     }
                 }
             }
+        }
+    }
+
+    forwarding?.let { m -> ForwardSheet(m, myId) { forwarding = null } }
+    infoFor?.let { m -> conv?.let { c -> MessageInfoDialog(m, c) { infoFor = null } } }
+    if (pollOpen) {
+        PollDialog(onDismiss = { pollOpen = false }) { q, options, multi ->
+            pollOpen = false
+            scope.launch { runCatching { Bants.sendPoll(convId, q, options, multi) }.onFailure { toast(context, it.message) } }
         }
     }
 
@@ -739,6 +764,8 @@ private fun MessageBubble(
     onReply: () -> Unit,
     onReact: (String) -> Unit,
     onMoreReactions: () -> Unit,
+    onForward: () -> Unit,
+    onInfo: () -> Unit,
     onRetry: () -> Unit,
     onCopy: () -> Unit,
     onEdit: () -> Unit,
@@ -836,6 +863,7 @@ private fun MessageBubble(
                     if (m.deleted) {
                         Text("This message was deleted", fontStyle = FontStyle.Italic, color = faint)
                     } else {
+                        if (m.meta?.forwarded == true) ForwardedLabel(ink)
                         val imageModel = m.localUri ?: m.media?.let { mediaUrl(it) }
                         when (m.kind) {
                             "image" -> if (imageModel != null) {
@@ -865,8 +893,9 @@ private fun MessageBubble(
                             "audio" -> AudioBubble(m, ink, if (mine) ReadTick else MaterialTheme.colorScheme.primary)
                             "video" -> VideoTile(m, ink, onVideo, onLongPress = openMenu)
                             "file" -> FileTile(m, ink, onLongPress = openMenu)
+                            "poll" -> PollBubble(m, conv, myId, ink, enabled = canInteract)
                         }
-                        if (m.body.isNotEmpty()) MessageText(m, conv, myId, ink)
+                        if (m.body.isNotEmpty() && m.kind != "poll") MessageText(m, conv, myId, ink)
                         m.meta?.preview?.let { LinkPreviewCard(it, mine, onLongPress = openMenu) }
                     }
                     Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
@@ -929,7 +958,21 @@ private fun MessageBubble(
                         )
                     }
                 }
-                if (m.body.isNotEmpty()) {
+                if (canInteract) {
+                    DropdownMenuItem(
+                        text = { Text("Forward") },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.Forward, contentDescription = null) },
+                        onClick = { menu = false; onForward() },
+                    )
+                }
+                if (mine && canInteract) {
+                    DropdownMenuItem(
+                        text = { Text("Info") },
+                        leadingIcon = { Icon(Icons.Default.Info, contentDescription = null) },
+                        onClick = { menu = false; onInfo() },
+                    )
+                }
+                if (m.body.isNotEmpty() && m.kind != "poll") {
                     DropdownMenuItem(
                         text = { Text("Copy") },
                         leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
