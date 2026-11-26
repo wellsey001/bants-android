@@ -2,4 +2,5 @@
 <paths>
     <cache-path name="media" path="media/" />
     <files-path name="outbox" path="outbox/" />
+    <cache-path name="updates" path="updates/" />
 </paths>

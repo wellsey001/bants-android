@@ -137,6 +137,13 @@ fun HomeScreen(nav: Navigator) {
                 }
             }
 
+            val update by com.wellsey.bants.Updater.available.collectAsState()
+            var updateOpen by remember { mutableStateOf(false) }
+            update?.let { r ->
+                UpdateBanner(r, onOpen = { updateOpen = true }, modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 12.dp))
+                if (updateOpen) UpdateDialog(r) { updateOpen = false }
+            }
+
             if (archivedCount > 0 && filter == Filter.All) {
                 Row(
                     Modifier

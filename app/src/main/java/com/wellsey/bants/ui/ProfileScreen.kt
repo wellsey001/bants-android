@@ -160,6 +160,32 @@ fun ProfileScreen(nav: Navigator) {
             FriendCodeCard(me?.friendCode)
             TextButton(onClick = { confirmReset = true }) { Text("Get a new friend code") }
 
+            val update by com.wellsey.bants.Updater.available.collectAsState()
+            var updateOpen by remember { mutableStateOf(false) }
+            var checking by remember { mutableStateOf(false) }
+            ChunkyButton(
+                if (update != null) "Update to ${update?.version}" else "Check for updates",
+                onClick = {
+                    if (update != null) {
+                        updateOpen = true
+                    } else {
+                        scope.launch {
+                            checking = true
+                            runCatching { com.wellsey.bants.Updater.check(context, force = true) }
+                                .onSuccess { if (it == null) toast(context, "You're on the newest version") else updateOpen = true }
+                                .onFailure { toast(context, it.message ?: "Couldn't check for updates") }
+                            checking = false
+                        }
+                    }
+                },
+                busy = checking,
+                fill = if (update != null) BantsYellow else LocalBants.current.card,
+                content = if (update != null) BantsInk else LocalBants.current.onCard,
+                icon = androidx.compose.material.icons.Icons.Default.SystemUpdate,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            update?.let { r -> if (updateOpen) UpdateDialog(r) { updateOpen = false } }
+
             Text(
                 "Server: ${Bants.session.serverUrl}\nVersion $version",
                 style = MaterialTheme.typography.bodySmall,

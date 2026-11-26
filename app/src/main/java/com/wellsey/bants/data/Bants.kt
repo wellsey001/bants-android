@@ -201,6 +201,7 @@ object Bants {
     fun onForeground() {
         pauseJob?.cancel()
         inForeground = true
+        scope.launch { runCatching { com.wellsey.bants.Updater.check(appContext) } }
         if (loggedIn.value) {
             realtime.reconnectNow()
             kickOutbox()
