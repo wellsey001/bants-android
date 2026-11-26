@@ -3,9 +3,6 @@ package com.wellsey.bants
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
-import android.provider.Settings
-import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
@@ -16,11 +13,10 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
- * Checks GitHub for a newer Bants release, downloads the APK and hands it to Android's installer.
+ * Checks GitHub for a newer Bants release and opens its download link.
  * Every build on main becomes a release, so "latest" is always the newest app.
  */
 object Updater {
@@ -31,8 +27,6 @@ object Updater {
 
     sealed interface Status {
         data object Idle : Status
-        data class Downloading(val progress: Float?) : Status
-        data object NeedsPermission : Status
         data class Failed(val message: String) : Status
     }
 
@@ -88,64 +82,19 @@ object Updater {
         release
     }
 
-    /** Downloads the update and opens the installer. Asks for the "install apps" permission first if needed. */
-    suspend fun install(context: Context, release: Release) {
-        if (status.value is Status.Downloading) return
-        if (Build.VERSION.SDK_INT >= 26 && !context.packageManager.canRequestPackageInstalls()) {
-            status.value = Status.NeedsPermission
-            context.startActivity(
-                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            )
-            return
-        }
-        status.value = Status.Downloading(null)
+    /**
+     * Opens the new APK's download link in the browser. The browser downloads it and Android's
+     * installer takes over when you tap it. Bants itself never installs apps, which keeps
+     * Play Protect happy.
+     */
+    fun install(context: Context, release: Release) {
         try {
-            val file = withContext(Dispatchers.IO) { download(context, release.apkUrl) }
-            // Make sure it really is Bants before handing it over.
-            val info = context.packageManager.getPackageArchiveInfo(file.path, 0)
-            if (info?.packageName != context.packageName) throw IllegalStateException("That download wasn't a Bants app")
-            val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
             context.startActivity(
-                Intent(Intent.ACTION_VIEW)
-                    .setDataAndType(uri, "application/vnd.android.package-archive")
-                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
+                Intent(Intent.ACTION_VIEW, Uri.parse(release.apkUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             )
             status.value = Status.Idle
         } catch (e: Exception) {
-            status.value = Status.Failed(e.message ?: "Download failed")
+            status.value = Status.Failed("Couldn't open your browser")
         }
-    }
-
-    private fun download(context: Context, url: String): File {
-        val dir = File(context.cacheDir, "updates").apply { mkdirs() }
-        dir.listFiles()?.forEach { it.delete() }
-        val out = File(dir, "Bants.apk")
-        http.newCall(Request.Builder().url(url).build()).execute().use { res ->
-            if (!res.isSuccessful) throw IllegalStateException("Download failed (${res.code})")
-            val body = res.body ?: throw IllegalStateException("Download failed")
-            val total = body.contentLength().takeIf { it > 0 }
-            var done = 0L
-            var lastShown = -1
-            body.byteStream().use { input ->
-                out.outputStream().use { output ->
-                    val buf = ByteArray(64 * 1024)
-                    while (true) {
-                        val n = input.read(buf)
-                        if (n < 0) break
-                        output.write(buf, 0, n)
-                        done += n
-                        if (total != null) {
-                            val pct = (done * 100 / total).toInt()
-                            if (pct != lastShown) {
-                                lastShown = pct
-                                status.value = Status.Downloading(pct / 100f)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        return out
     }
 }

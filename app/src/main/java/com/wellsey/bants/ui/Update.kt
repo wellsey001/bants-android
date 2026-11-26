@@ -59,9 +59,8 @@ fun UpdateDialog(release: Updater.Release, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val status by Updater.status.collectAsState()
-    val downloading = status as? Updater.Status.Downloading
     AlertDialog(
-        onDismissRequest = { if (downloading == null) onDismiss() },
+        onDismissRequest = onDismiss,
         title = { Text("Update to ${release.version}") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -77,34 +76,19 @@ fun UpdateDialog(release: Updater.Release, onDismiss: () -> Unit) {
                         modifier = Modifier.heightIn(max = 220.dp).verticalScroll(rememberScrollState()),
                     )
                 }
-                when (val s = status) {
-                    is Updater.Status.Downloading -> {
-                        if (s.progress == null) LinearProgressIndicator(Modifier.fillMaxWidth())
-                        else LinearProgressIndicator(progress = { s.progress }, modifier = Modifier.fillMaxWidth())
-                        Text(
-                            if (s.progress == null) "Downloading…" else "Downloading… ${(s.progress * 100).toInt()}%",
-                            fontSize = 13.sp,
-                            color = LocalBants.current.muted,
-                        )
-                    }
-                    Updater.Status.NeedsPermission -> Text(
-                        "Turn on \"Allow from this source\" for Bants, come back, then tap Update again. You only need to do this once.",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                    is Updater.Status.Failed -> Text(s.message, fontSize = 13.sp, color = MaterialTheme.colorScheme.error)
-                    Updater.Status.Idle -> Unit
-                }
+                Text(
+                    "Update downloads the new version in your browser. Tap the download when it finishes to install it.",
+                    fontSize = 13.sp,
+                    color = LocalBants.current.muted,
+                )
+                (status as? Updater.Status.Failed)?.let { Text(it.message, fontSize = 13.sp, color = MaterialTheme.colorScheme.error) }
             }
         },
         confirmButton = {
-            TextButton(
-                enabled = downloading == null,
-                onClick = { scope.launch { Updater.install(context, release) } },
-            ) { Text("Update", fontWeight = FontWeight.Bold) }
+            TextButton(onClick = { Updater.install(context, release); onDismiss() }) { Text("Update", fontWeight = FontWeight.Bold) }
         },
         dismissButton = {
-            if (downloading == null) TextButton(onClick = onDismiss) { Text("Later") }
+            TextButton(onClick = onDismiss) { Text("Later") }
         },
     )
 }
