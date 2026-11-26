@@ -31,6 +31,11 @@ class Session(context: Context) {
         get() = prefs.getBoolean("bantsRingtone", true)
         set(value) = prefs.edit().putBoolean("bantsRingtone", value).apply()
 
+    /** Emojis you've reacted with lately, newest first. They fill the quick-reaction row. */
+    var recentReactions: List<String>
+        get() = prefs.getString("recentReactions", null)?.split('\u0001')?.filter { it.isNotBlank() }.orEmpty()
+        set(value) = prefs.edit().putString("recentReactions", value.take(12).joinToString("\u0001")).apply()
+
     var hapticsOn: Boolean
         get() = prefs.getBoolean("haptics", true)
         set(value) = prefs.edit().putBoolean("haptics", value).apply()

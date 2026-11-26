@@ -53,6 +53,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Videocam
@@ -138,6 +139,9 @@ import kotlin.math.roundToInt
 
 private val QuickReactions = listOf("👍", "❤️", "😂", "😮", "😢", "🔥")
 
+/** Your six most recent reactions, topped up with the defaults. */
+private fun quickRow(): List<String> = (Bants.session.recentReactions + QuickReactions).distinct().take(6)
+
 @Composable
 fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
     val conversations by Bants.conversations.collectAsState()
@@ -169,6 +173,11 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
     var editing by remember { mutableStateOf<Message?>(null) }
     var replyingTo by remember { mutableStateOf<Message?>(null) }
     var unsending by remember { mutableStateOf<Message?>(null) }
+    var reactingTo by remember { mutableStateOf<Message?>(null) }
+    fun react(m: Message, emoji: String) {
+        Bants.session.recentReactions = listOf(emoji) + Bants.session.recentReactions.filter { it != emoji }
+        scope.launch { runCatching { Bants.react(m, emoji) }.onFailure { toast(context, it.message) } }
+    }
     // New messages that land while you're looking get slapped on like stickers (once each).
     val openedAt = remember(convId) { System.currentTimeMillis() }
     val slapped = remember(convId) { mutableSetOf<Long>() }
@@ -586,7 +595,8 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
                             onImage = { viewer = it },
                             onVideo = { video = m },
                             onReply = { if (!m.pending && !m.failed && !m.deleted) { replyingTo = m; editing = null } },
-                            onReact = { emoji -> scope.launch { runCatching { Bants.react(m, emoji) }.onFailure { toast(context, it.message) } } },
+                            onReact = { emoji -> react(m, emoji) },
+                            onMoreReactions = { reactingTo = m },
                             onRetry = { Bants.retry(m) },
                             onCopy = {
                                 clipboard.setText(AnnotatedString(m.body))
@@ -608,6 +618,13 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
                     }
                 }
             }
+        }
+    }
+
+    reactingTo?.let { m ->
+        EmojiReactionSheet(onDismiss = { reactingTo = null }) { emoji ->
+            reactingTo = null
+            react(m, emoji)
         }
     }
 
@@ -721,6 +738,7 @@ private fun MessageBubble(
     onVideo: () -> Unit,
     onReply: () -> Unit,
     onReact: (String) -> Unit,
+    onMoreReactions: () -> Unit,
     onRetry: () -> Unit,
     onCopy: () -> Unit,
     onEdit: () -> Unit,
@@ -872,7 +890,7 @@ private fun MessageBubble(
                 if (canInteract) {
                     Row(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                         val myReaction = m.reactions.firstOrNull { myId in it.userIds }?.emoji
-                        QuickReactions.forEach { emoji ->
+                        quickRow().forEach { emoji ->
                             Box(
                                 Modifier
                                     .size(42.dp)
@@ -885,6 +903,17 @@ private fun MessageBubble(
                                 contentAlignment = Alignment.Center,
                             ) { Text(emoji, fontSize = 24.sp) }
                         }
+                        Box(
+                            Modifier
+                                .size(42.dp)
+                                .clip(CircleShape)
+                                .background(LocalBants.current.outline.copy(alpha = 0.08f))
+                                .bouncyClickable(squash = 0.25f, onClickLabel = "More emojis") {
+                                    menu = false
+                                    onMoreReactions()
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(Icons.Default.Add, contentDescription = "More emojis", tint = LocalBants.current.onCard) }
                     }
                     HorizontalDivider(Modifier.padding(vertical = 4.dp))
                     DropdownMenuItem(

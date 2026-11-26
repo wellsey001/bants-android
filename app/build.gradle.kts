@@ -76,6 +76,8 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
+    // Full emoji picker for reactions (categories, skin tones, recents).
+    implementation("androidx.emoji2:emoji2-emojipicker:1.4.0")
     implementation("androidx.activity:activity-compose:1.9.0")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-process:2.8.3")
