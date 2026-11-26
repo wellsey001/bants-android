@@ -47,6 +47,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -176,15 +177,11 @@ private fun StickerTab(onSticker: (String) -> Unit) {
 
     LaunchedEffect(Unit) { runCatching { Bants.loadStickers() } }
 
+    var picked by remember { mutableStateOf<android.net.Uri?>(null) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) scope.launch {
-            making = true
-            runCatching { Bants.makeSticker(uri) }
-                .onSuccess { toast(context, "Sticker made") }
-                .onFailure { toast(context, it.message) }
-            making = false
-        }
+        if (uri != null) picked = uri
     }
+    picked?.let { uri -> StickerMakerDialog(uri, onDismiss = { picked = null }) }
     val b = LocalBants.current
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -254,3 +251,64 @@ private fun StickerTab(onSticker: (String) -> Unit) {
 
 @Suppress("unused")
 private val Transparent = Color.Transparent
+
+
+/** Preview a new sticker: cut out (with a white border) or the whole photo, then save it. */
+@Composable
+private fun StickerMakerDialog(uri: android.net.Uri, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var cutOut by remember { mutableStateOf(true) }
+    var result by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var cutWorked by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var saving by remember { mutableStateOf(false) }
+    LaunchedEffect(uri, cutOut) {
+        result = null
+        error = null
+        runCatching { Bants.prepareSticker(uri, cutOut) }
+            .onSuccess { (bmp, worked) -> result = bmp; cutWorked = worked || !cutOut }
+            .onFailure { error = it.message }
+    }
+    val b = LocalBants.current
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { if (!saving) onDismiss() },
+        title = { Text("New sticker") },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(
+                    Modifier.size(220.dp).chunky(RoundedCornerShape(22.dp), BantsPurple.copy(alpha = 0.25f), b.outline, shadow = 0.dp, border = 2.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    val r = result
+                    when {
+                        error != null -> Text(error ?: "", textAlign = TextAlign.Center, modifier = Modifier.padding(16.dp))
+                        r == null -> CircularProgressIndicator(color = BantsInk)
+                        else -> androidx.compose.foundation.Image(r.asImageBitmap(), contentDescription = "Sticker preview", modifier = Modifier.size(200.dp))
+                    }
+                }
+                if (cutOut && !cutWorked) Text("Nothing stood out to cut out, so it's the whole photo.", fontSize = 13.sp, color = b.muted, textAlign = TextAlign.Center)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ChunkyChip("✂ Cut out", cutOut) { cutOut = true }
+                    ChunkyChip("Whole photo", !cutOut) { cutOut = false }
+                }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(
+                enabled = result != null && !saving,
+                onClick = {
+                    val r = result ?: return@TextButton
+                    saving = true
+                    scope.launch {
+                        runCatching { Bants.saveStickerBitmap(r) }
+                            .onSuccess { toast(context, "Sticker saved"); onDismiss() }
+                            .onFailure { toast(context, it.message) }
+                        saving = false
+                    }
+                },
+            ) { Text(if (saving) "Saving…" else "Save sticker", fontWeight = FontWeight.Bold) }
+        },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss, enabled = !saving) { Text("Cancel") } },
+    )
+}

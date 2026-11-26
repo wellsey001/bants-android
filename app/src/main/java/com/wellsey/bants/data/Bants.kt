@@ -752,6 +752,38 @@ object Bants {
 
     suspend fun messageInfo(m: Message): MessageInfo = call { api.get("/api/messages/${m.id}/info") }
 
+    /** Sends where you are. With [liveMinutes], keeps it updating for that long. */
+    suspend fun sendLocation(convId: Long, lat: Double, lng: Double, accuracy: Double, liveMinutes: Int = 0) {
+        val m = call {
+            api.post<Message>("/api/conversations/$convId/messages", buildJsonObject {
+                put("clientId", java.util.UUID.randomUUID().toString())
+                put("location", buildJsonObject {
+                    put("lat", lat)
+                    put("lng", lng)
+                    put("accuracy", accuracy)
+                    if (liveMinutes > 0) put("liveMinutes", liveMinutes)
+                })
+            })
+        }
+        putMessages(convId, listOf(m))
+        val until = m.meta?.location?.liveUntil
+        if (until != null) com.wellsey.bants.location.LiveLocationService.start(appContext, m.id, until)
+    }
+
+    suspend fun updateLiveLocation(messageId: Long, lat: Double, lng: Double, accuracy: Double) {
+        val m = api.patch<Message>("/api/messages/$messageId/location", buildJsonObject {
+            put("lat", lat)
+            put("lng", lng)
+            put("accuracy", accuracy)
+        })
+        putMessages(m.conversationId, listOf(m))
+    }
+
+    suspend fun stopLiveLocation(messageId: Long) {
+        val m = api.patch<Message>("/api/messages/$messageId/location", buildJsonObject { put("stop", true) })
+        putMessages(m.conversationId, listOf(m))
+    }
+
     fun markRead(convId: Long) {
         val lastId = messages.value[convId]?.maxOfOrNull { it.id } ?: return
         val conv = conversations.value[convId] ?: return
@@ -917,11 +949,52 @@ object Bants {
         stickers.value = call { api.get<List<Sticker>>("/api/stickers") }
     }
 
-    /** Turns a photo into a square sticker and adds it to your collection. */
-    suspend fun makeSticker(uri: Uri) {
+    /**
+     * Turns a photo into a sticker preview. With [cutOut], the person or thing in it is cut out
+     * with a white die-cut border; if nothing stands out, it falls back to a square crop.
+     * Returns the sticker image and whether the cut-out worked.
+     */
+    suspend fun prepareSticker(uri: Uri, cutOut: Boolean): Pair<Bitmap, Boolean> {
+        if (cutOut) {
+            val photo = withContext(Dispatchers.IO) {
+                val (jpeg, _) = compressImage(uri, maxSide = 1280, quality = 95)
+                BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
+            } ?: throw ApiException(0, "Couldn't read that image")
+            val cut = runCatching { com.wellsey.bants.media.StickerMaker.cutOut(photo) }
+                .getOrElse { throw ApiException(0, "The cut-out tool is still downloading. Try again in a minute.") }
+            val sticker = cut?.let { withContext(Dispatchers.Default) { com.wellsey.bants.media.StickerMaker.dieCut(it) } }
+            if (sticker != null) return sticker to true
+        }
         val bytes = withContext(Dispatchers.IO) { squareSticker(uri) }
-        val media = upload(bytes.toRequestBody("image/webp".toMediaType()), "sticker.webp")
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size) to false
+    }
+
+    /** Uploads a sticker image and adds it to your collection. Returns its media id. */
+    suspend fun saveStickerBitmap(bitmap: Bitmap): String {
+        val bytes = withContext(Dispatchers.Default) {
+            val out = ByteArrayOutputStream()
+            @Suppress("DEPRECATION")
+            val format = if (Build.VERSION.SDK_INT >= 30) Bitmap.CompressFormat.WEBP_LOSSLESS else Bitmap.CompressFormat.PNG
+            bitmap.compress(format, 90, out)
+            out.toByteArray()
+        }
+        val mime = if (Build.VERSION.SDK_INT >= 30) "image/webp" else "image/png"
+        val media = upload(bytes.toRequestBody(mime.toMediaType()), if (mime == "image/webp") "sticker.webp" else "sticker.png")
         saveSticker(media.id)
+        return media.id
+    }
+
+    /** Saves a photo as a chat wallpaper (shrunk to phone-screen size). */
+    fun saveWallpaper(uri: Uri, file: java.io.File) {
+        val (bytes, _) = compressImage(uri, maxSide = 2048, quality = 88)
+        file.parentFile?.mkdirs()
+        file.writeBytes(bytes)
+    }
+
+    /** Old one-tap version: square crop, straight into your collection. */
+    suspend fun makeSticker(uri: Uri) {
+        val (bmp, _) = prepareSticker(uri, cutOut = false)
+        saveStickerBitmap(bmp)
     }
 
     suspend fun saveSticker(mediaId: String) {

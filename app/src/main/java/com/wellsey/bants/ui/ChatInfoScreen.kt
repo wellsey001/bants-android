@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.RadioButton
@@ -182,6 +183,8 @@ fun ChatInfoScreen(convId: Long, nav: Navigator) {
                     modifier = if (canChange) Modifier.bouncyClickable(squash = 0.03f) { pickingTimer = true } else Modifier,
                 )
             }
+
+            item { ActionRow(Icons.Default.Wallpaper, "Wallpaper & colours") { nav.go(Screen.Wallpaper(convId)) } }
 
             if (conv.isGroup) {
                 item { SectionLabel("${conv.members.size} members") }

@@ -49,6 +49,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.automirrored.filled.Forward
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Poll
@@ -180,6 +181,9 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
     var forwarding by remember { mutableStateOf<Message?>(null) }
     var infoFor by remember { mutableStateOf<Message?>(null) }
     var pollOpen by remember { mutableStateOf(false) }
+    var locationOpen by remember { mutableStateOf(false) }
+    // Re-read the chat's look whenever you come back to it (e.g. from the wallpaper screen).
+    val chatStyle = remember(convId, nav.current) { ChatStyle.load(convId) }
     fun react(m: Message, emoji: String) {
         Bants.session.recentReactions = listOf(emoji) + Bants.session.recentReactions.filter { it != emoji }
         scope.launch { runCatching { Bants.react(m, emoji) }.onFailure { toast(context, it.message) } }
@@ -334,7 +338,10 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
         else toast(context, "That message is further back")
     }
 
+    Box(Modifier.fillMaxSize()) {
+    ChatWallpaper(convId, chatStyle)
     Scaffold(
+        containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = { Column {
             val b = LocalBants.current
@@ -475,6 +482,14 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
                                         },
                                     )
                                     DropdownMenuItem(
+                                        text = { Text("Location") },
+                                        leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
+                                        onClick = {
+                                            attachOpen = false
+                                            locationOpen = true
+                                        },
+                                    )
+                                    DropdownMenuItem(
                                         text = { Text("Poll") },
                                         leadingIcon = { Icon(Icons.Default.Poll, contentDescription = null) },
                                         onClick = {
@@ -573,7 +588,7 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
             state = listState,
             reverseLayout = true,
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-            modifier = Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background),
+            modifier = Modifier.fillMaxSize().padding(padding),
         ) {
             itemsIndexed(newestFirst, key = { _, m -> m.clientId?.let { "c$it" } ?: "i${m.id}" }) { i, m ->
                 val older = newestFirst.getOrNull(i + 1)
@@ -612,6 +627,7 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
                             onReact = { emoji -> react(m, emoji) },
                             onMoreReactions = { reactingTo = m },
                             onForward = { forwarding = m },
+                            style = chatStyle,
                             onInfo = { infoFor = m },
                             onRetry = { Bants.retry(m) },
                             onCopy = {
@@ -636,9 +652,11 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
             }
         }
     }
+    }
 
     forwarding?.let { m -> ForwardSheet(m, myId) { forwarding = null } }
     infoFor?.let { m -> conv?.let { c -> MessageInfoDialog(m, c) { infoFor = null } } }
+    if (locationOpen) LocationSheet(convId) { locationOpen = false }
     if (pollOpen) {
         PollDialog(onDismiss = { pollOpen = false }) { q, options, multi ->
             pollOpen = false
@@ -765,6 +783,7 @@ private fun MessageBubble(
     onReact: (String) -> Unit,
     onMoreReactions: () -> Unit,
     onForward: () -> Unit,
+    style: ChatStyle,
     onInfo: () -> Unit,
     onRetry: () -> Unit,
     onCopy: () -> Unit,
@@ -778,8 +797,8 @@ private fun MessageBubble(
     val canInteract = !m.deleted && !m.pending && !m.failed
     val b = LocalBants.current
     val isSticker = m.kind == "sticker" && !m.deleted
-    val bubble = if (mine) BantsPurple else b.theirBubble
-    val ink = if (isSticker) b.onCard else if (mine) Color.White else b.onCard
+    val bubble = if (mine) style.myBubble() else b.theirBubble
+    val ink = if (isSticker) b.onCard else if (mine) style.myInk() else b.onCard
     val faint = ink.copy(alpha = 0.7f)
     val shape = RoundedCornerShape(
         topStart = 18.dp,
@@ -894,8 +913,9 @@ private fun MessageBubble(
                             "video" -> VideoTile(m, ink, onVideo, onLongPress = openMenu)
                             "file" -> FileTile(m, ink, onLongPress = openMenu)
                             "poll" -> PollBubble(m, conv, myId, ink, enabled = canInteract)
+                            "location" -> LocationBubble(m, mine, ink, onLongPress = openMenu)
                         }
-                        if (m.body.isNotEmpty() && m.kind != "poll") MessageText(m, conv, myId, ink)
+                        if (m.body.isNotEmpty() && m.kind != "poll" && m.kind != "location") MessageText(m, conv, myId, ink)
                         m.meta?.preview?.let { LinkPreviewCard(it, mine, onLongPress = openMenu) }
                     }
                     Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {

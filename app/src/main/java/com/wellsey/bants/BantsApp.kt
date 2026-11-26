@@ -18,12 +18,20 @@ class BantsApp : Application(), ImageLoaderFactory {
         Notifications.createChannel(this)
         Sounds.init(this)
         Haptics.init(this)
+        AppLock.onAppStart()
         com.wellsey.bants.calls.CallManager.init(this)
         com.wellsey.bants.calls.CallService.createChannel(this)
         com.wellsey.bants.calls.IncomingCallNotification.createChannel(this)
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
-            override fun onStart(owner: LifecycleOwner) = Bants.onForeground()
-            override fun onStop(owner: LifecycleOwner) = Bants.onBackground()
+            override fun onStart(owner: LifecycleOwner) {
+                AppLock.onForeground()
+                Bants.onForeground()
+            }
+
+            override fun onStop(owner: LifecycleOwner) {
+                AppLock.onBackground()
+                Bants.onBackground()
+            }
         })
     }
 

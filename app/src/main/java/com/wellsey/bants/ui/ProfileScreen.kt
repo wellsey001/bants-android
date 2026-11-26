@@ -167,6 +167,7 @@ fun ProfileScreen(nav: Navigator) {
                 icon = androidx.compose.material.icons.Icons.Default.HighQuality,
                 modifier = Modifier.fillMaxWidth(),
             )
+            AppLockCard()
             FriendCodeCard(me?.friendCode)
             TextButton(onClick = { confirmReset = true }) { Text("Get a new friend code") }
 
@@ -237,5 +238,41 @@ fun ProfileScreen(nav: Navigator) {
             },
             dismissButton = { TextButton(onClick = { confirmLogout = false }) { Text("Cancel") } },
         )
+    }
+}
+
+
+/** Turn the fingerprint/PIN lock on or off, and how quickly it locks again. */
+@Composable
+private fun AppLockCard() {
+    val context = LocalContext.current
+    val b = LocalBants.current
+    var on by remember { mutableStateOf(Bants.session.appLock) }
+    var after by remember { mutableStateOf(Bants.session.appLockAfterSeconds) }
+    ChunkyCard(Modifier.fillMaxWidth(), shadow = 0.dp) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("App lock", fontWeight = FontWeight.Bold, color = b.onCard)
+                    Text("Fingerprint, face or PIN to open Bants. You can still answer calls.", style = MaterialTheme.typography.bodySmall, color = b.muted)
+                }
+                androidx.compose.material3.Switch(checked = on, onCheckedChange = {
+                    if (it && !com.wellsey.bants.AppLock.canUse(context)) {
+                        toast(context, "Set up a fingerprint, face or screen lock on your phone first")
+                    } else {
+                        on = it
+                        Bants.session.appLock = it
+                    }
+                })
+            }
+            if (on) {
+                Text("LOCK AFTER", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp, color = b.muted)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(0 to "Straight away", 60 to "1 min", 300 to "5 min").forEach { (secs, label) ->
+                        ChunkyChip(label, after == secs) { after = secs; Bants.session.appLockAfterSeconds = secs }
+                    }
+                }
+            }
+        }
     }
 }

@@ -36,6 +36,18 @@ class Session(context: Context) {
         get() = prefs.getString("recentReactions", null)?.split('\u0001')?.filter { it.isNotBlank() }.orEmpty()
         set(value) = prefs.edit().putString("recentReactions", value.take(12).joinToString("\u0001")).apply()
 
+    fun chatStyle(convId: Long): String? = prefs.getString("chatStyle_$convId", null)
+    fun setChatStyle(convId: Long, value: String) = prefs.edit().putString("chatStyle_$convId", value).apply()
+
+    var appLock: Boolean
+        get() = prefs.getBoolean("appLock", false)
+        set(value) = prefs.edit().putBoolean("appLock", value).apply()
+
+    /** How long Bants can be in the background before it locks again. */
+    var appLockAfterSeconds: Int
+        get() = prefs.getInt("appLockAfter", 0)
+        set(value) = prefs.edit().putInt("appLockAfter", value).apply()
+
     var hapticsOn: Boolean
         get() = prefs.getBoolean("haptics", true)
         set(value) = prefs.edit().putBoolean("haptics", value).apply()

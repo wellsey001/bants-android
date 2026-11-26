@@ -27,6 +27,7 @@ sealed interface Screen {
     data object NewGroup : Screen
     data object Profile : Screen
     data class ChatInfo(val id: Long) : Screen
+    data class Wallpaper(val id: Long) : Screen
     data class AddMembers(val id: Long) : Screen
     data object Archived : Screen
     data object Search : Screen
@@ -87,6 +88,7 @@ fun BantsRoot(openConversation: MutableStateFlow<Long?>) {
         Screen.NewGroup -> NewGroupScreen(nav)
         Screen.Profile -> ProfileScreen(nav)
         is Screen.ChatInfo -> key(screen.id) { ChatInfoScreen(screen.id, nav) }
+        is Screen.Wallpaper -> key(screen.id) { ChatStyleScreen(screen.id, nav) }
         is Screen.AddMembers -> key(screen.id) { AddMembersScreen(screen.id, nav) }
         Screen.Archived -> ArchivedScreen(nav)
         Screen.Search -> SearchScreen(nav)

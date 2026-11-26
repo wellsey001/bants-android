@@ -78,6 +78,12 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     // Full emoji picker for reactions (categories, skin tones, recents).
     implementation("androidx.emoji2:emoji2-emojipicker:1.4.0")
+    // Sticker maker: cuts people and things out of photos, on the phone.
+    implementation("com.google.android.gms:play-services-mlkit-subject-segmentation:16.0.0-beta1")
+    // Location sharing.
+    implementation("com.google.android.gms:play-services-location:21.3.0")
+    // App lock (fingerprint / face / PIN).
+    implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.activity:activity-compose:1.9.0")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-process:2.8.3")
