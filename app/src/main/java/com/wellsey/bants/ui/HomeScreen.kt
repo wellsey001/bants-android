@@ -1,6 +1,17 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package com.wellsey.bants.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -67,6 +78,7 @@ fun HomeScreen(nav: Navigator) {
 
     val sorted = remember(conversations, filter) {
         conversations.values
+            .filter { !it.archived }
             .filter {
                 when (filter) {
                     Filter.All -> true
@@ -74,9 +86,10 @@ fun HomeScreen(nav: Navigator) {
                     Filter.Groups -> it.isGroup
                 }
             }
-            .sortedByDescending { maxOf(it.updatedAt, it.lastMessage?.createdAt ?: 0) }
+            .sortedWith(compareByDescending<Conversation> { it.pinned }.thenByDescending { maxOf(it.updatedAt, it.lastMessage?.createdAt ?: 0) })
     }
-    val unreadChats = conversations.values.count { it.unreadCount > 0 }
+    val unreadChats = conversations.values.count { it.unreadCount > 0 && !it.archived }
+    val archivedCount = conversations.values.count { it.archived }
 
     LaunchedEffect(Unit) {
         runCatching { Bants.refreshConversations() }
@@ -92,6 +105,8 @@ fun HomeScreen(nav: Navigator) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Sticker("bants", size = 40.sp)
                     Spacer(Modifier.weight(1f))
+                    ChunkyIconButton(Icons.Default.Search, "Search messages", { nav.go(Screen.Search) })
+                    Spacer(Modifier.width(10.dp))
                     Box {
                         ChunkyIconButton(Icons.Default.PersonAdd, "Contact requests", { nav.go(Screen.Requests) })
                         if (requests.incoming.isNotEmpty()) {
@@ -122,6 +137,20 @@ fun HomeScreen(nav: Navigator) {
                 }
             }
 
+            if (archivedCount > 0 && filter == Filter.All) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable(role = Role.Button) { nav.go(Screen.Archived) }
+                        .padding(horizontal = 22.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Default.Archive, contentDescription = null, tint = b.muted, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("Archived", fontWeight = FontWeight.Bold, color = b.muted, modifier = Modifier.weight(1f))
+                    Text("$archivedCount", fontWeight = FontWeight.ExtraBold, color = b.muted)
+                }
+            }
             if (sorted.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     when {
@@ -133,7 +162,7 @@ fun HomeScreen(nav: Navigator) {
             } else {
                 LazyColumn(
                     Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 110.dp),
+                    contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = if (archivedCount > 0 && filter == Filter.All) 4.dp else 16.dp, bottom = 110.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     items(sorted, key = { it.id }) { c ->
@@ -162,8 +191,15 @@ fun HomeScreen(nav: Navigator) {
 }
 
 @Composable
-private fun ConversationCard(c: Conversation, myId: Long, someoneTyping: Boolean, onClick: () -> Unit) {
+fun ConversationCard(c: Conversation, myId: Long, someoneTyping: Boolean, onClick: () -> Unit) {
     val b = LocalBants.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var menu by remember { mutableStateOf(false) }
+    fun act(block: suspend () -> Unit) {
+        menu = false
+        scope.launch { runCatching { block() }.onFailure { toast(context, it.message) } }
+    }
     val peer = c.peer(myId)
     val title = c.title(myId)
     val last = c.lastMessage
@@ -180,11 +216,12 @@ private fun ConversationCard(c: Conversation, myId: Long, someoneTyping: Boolean
     }
     val unread = c.unreadCount > 0
 
+    Box {
     Row(
         Modifier
             .fillMaxWidth()
             .chunky(RoundedCornerShape(18.dp), if (unread) b.unreadCard else b.card, b.outline)
-            .clickable(role = Role.Button, onClick = onClick)
+            .combinedClickable(role = Role.Button, onClick = onClick, onLongClick = { menu = true }, onLongClickLabel = "Chat options")
             .padding(horizontal = 12.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -202,6 +239,7 @@ private fun ConversationCard(c: Conversation, myId: Long, someoneTyping: Boolean
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                if (c.pinned) Icon(Icons.Default.PushPin, contentDescription = "Pinned", tint = b.muted, modifier = Modifier.padding(end = 4.dp).size(15.dp))
                 val time = last?.createdAt ?: c.updatedAt
                 if (time > 0) Text(shortTime(time), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = b.muted)
             }
@@ -230,5 +268,23 @@ private fun ConversationCard(c: Conversation, myId: Long, someoneTyping: Boolean
                 }
             }
         }
+    }
+    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+        DropdownMenuItem(
+            text = { Text(if (c.pinned) "Unpin" else "Pin to top") },
+            leadingIcon = { Icon(Icons.Default.PushPin, contentDescription = null) },
+            onClick = { act { Bants.setPinned(c.id, !c.pinned) } },
+        )
+        DropdownMenuItem(
+            text = { Text(if (c.archived) "Unarchive" else "Archive") },
+            leadingIcon = { Icon(Icons.Default.Archive, contentDescription = null) },
+            onClick = { act { Bants.setArchived(c.id, !c.archived) } },
+        )
+        DropdownMenuItem(
+            text = { Text(if (c.muted) "Unmute" else "Mute") },
+            leadingIcon = { Icon(Icons.Default.NotificationsOff, contentDescription = null) },
+            onClick = { act { Bants.setMuted(c.id, !c.muted) } },
+        )
+    }
     }
 }

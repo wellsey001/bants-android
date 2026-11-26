@@ -12,6 +12,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
@@ -52,6 +54,9 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.EmojiEmotions
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
@@ -95,6 +100,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -123,7 +130,7 @@ import kotlin.math.roundToInt
 private val QuickReactions = listOf("👍", "❤️", "😂", "😮", "😢", "🔥")
 
 @Composable
-fun ChatScreen(convId: Long, nav: Navigator) {
+fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
     val conversations by Bants.conversations.collectAsState()
     val allMessages by Bants.messages.collectAsState()
     val outboxItems by Bants.outbox.collectAsState()
@@ -132,9 +139,12 @@ fun ChatScreen(convId: Long, nav: Navigator) {
     val myId = me?.id ?: -1L
     val conv = conversations[convId]
     val real = allMessages[convId].orEmpty()
-    val msgs = remember(real, outboxItems, myId) {
-        real + outboxItems.filter { it.conversationId == convId }.map { it.toMessage(myId) }
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val msgs = remember(real, outboxItems, myId, now) {
+        real.filter { (it.expiresAt ?: Long.MAX_VALUE) > now } +
+            outboxItems.filter { it.conversationId == convId }.map { it.toMessage(myId) }
     }
+    val myStickers by Bants.stickers.collectAsState()
     val newestFirst = remember(msgs) { msgs.reversed() }
     val byId = remember(real) { real.associateBy { it.id } }
 
@@ -143,7 +153,10 @@ fun ChatScreen(convId: Long, nav: Navigator) {
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
-    var text by remember { mutableStateOf("") }
+    var field by remember { mutableStateOf(TextFieldValue("")) }
+    val text = field.text
+    var pickerOpen by remember { mutableStateOf(false) }
+    var highlight by remember { mutableStateOf<Long?>(null) }
     var editing by remember { mutableStateOf<Message?>(null) }
     var replyingTo by remember { mutableStateOf<Message?>(null) }
     var viewer by remember { mutableStateOf<String?>(null) }
@@ -168,6 +181,26 @@ fun ChatScreen(convId: Long, nav: Navigator) {
     LaunchedEffect(convId) {
         runCatching { Bants.loadMessages(convId) }
         Bants.markRead(convId)
+    }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(15_000)
+            now = System.currentTimeMillis()
+        }
+    }
+    LaunchedEffect(jumpTo) {
+        val target = jumpTo ?: return@LaunchedEffect
+        if (runCatching { Bants.loadUntil(convId, target) }.getOrDefault(false)) {
+            delay(100)
+            val list = Bants.messages.value[convId].orEmpty().asReversed()
+            val index = list.indexOfFirst { it.id == target }
+            if (index >= 0) listState.scrollToItem(index)
+            highlight = target
+            delay(2_500)
+            highlight = null
+        } else {
+            toast(context, "Couldn't find that message")
+        }
     }
     LaunchedEffect(msgs.lastOrNull()?.id) {
         Bants.markRead(convId)
@@ -227,7 +260,7 @@ fun ChatScreen(convId: Long, nav: Navigator) {
         val t = text
         val e = editing
         if (t.isBlank()) return
-        text = ""
+        field = TextFieldValue("")
         editing = null
         if (e != null) {
             scope.launch { runCatching { Bants.editMessage(e, t) }.onFailure { toast(context, it.message) } }
@@ -264,7 +297,12 @@ fun ChatScreen(convId: Long, nav: Navigator) {
                     Avatar(title, conv.avatarMedia(myId), size = 42.dp, online = peer?.online == true, group = conv.isGroup)
                     Spacer(Modifier.width(10.dp))
                     Column {
-                        Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontFamily = Bricolage, fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, color = BantsInk)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontFamily = Bricolage, fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, color = BantsInk, modifier = Modifier.weight(1f, fill = false))
+                            if (conv.disappearAfter > 0) {
+                                Icon(Icons.Default.Timer, contentDescription = "Disappearing messages on", tint = BantsInk, modifier = Modifier.padding(start = 4.dp).size(16.dp))
+                            }
+                        }
                         if (subtitle.isNotEmpty()) {
                             Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = BantsInk)
                         }
@@ -299,9 +337,40 @@ fun ChatScreen(convId: Long, nav: Navigator) {
                 Column(Modifier.navigationBarsPadding().imePadding()) {
                     val quoted = replyingTo
                     if (editing != null) {
-                        ComposerBanner(Icons.Default.Edit, "Editing message", null) { editing = null; text = "" }
+                        ComposerBanner(Icons.Default.Edit, "Editing message", null) { editing = null; field = TextFieldValue("") }
                     } else if (quoted != null) {
                         ComposerBanner(Icons.AutoMirrored.Filled.Reply, "Replying to ${nameOf(quoted.senderId)}", quoted.preview()) { replyingTo = null }
+                    }
+                    val mentionQuery = if (conv.isGroup) Regex("(^|\\s)@([A-Za-z0-9_.]{0,24})$").find(text.substring(0, field.selection.end.coerceIn(0, text.length)))?.groupValues?.get(2) else null
+                    val suggestions = if (mentionQuery == null) emptyList() else conv.members.map { it.user }.filter {
+                        it.id != myId && (it.username.startsWith(mentionQuery, true) || it.displayName.startsWith(mentionQuery, true))
+                    }.take(6)
+                    if (suggestions.isNotEmpty()) {
+                        Row(
+                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, top = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            suggestions.forEach { u ->
+                                Row(
+                                    Modifier
+                                        .chunky(RoundedCornerShape(50), LocalBants.current.card, LocalBants.current.outline, shadow = 0.dp, border = 2.dp)
+                                        .clickable {
+                                            val cursor = field.selection.end.coerceIn(0, text.length)
+                                            val start = cursor - (mentionQuery?.length ?: 0)
+                                            val insert = u.username + " "
+                                            val newText = text.substring(0, start) + insert + text.substring(cursor)
+                                            field = TextFieldValue(newText, TextRange(start + insert.length))
+                                        }
+                                        .padding(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Avatar(u.displayName, u.avatar, size = 26.dp, outlined = false)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(u.displayName, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = LocalBants.current.onCard)
+                                    Text(" @${u.username}", fontSize = 13.sp, color = LocalBants.current.muted)
+                                }
+                            }
+                        }
                     }
                     Row(Modifier.padding(8.dp), verticalAlignment = Alignment.Bottom) {
                         if (editing == null && !recording) {
@@ -338,11 +407,18 @@ fun ChatScreen(convId: Long, nav: Navigator) {
                             }
                         } else {
                             OutlinedTextField(
-                                value = text,
+                                value = field,
                                 onValueChange = {
-                                    text = it
-                                    if (it.isNotEmpty() && editing == null) Bants.sendTyping(convId)
+                                    field = it
+                                    if (it.text.isNotEmpty() && editing == null) Bants.sendTyping(convId)
                                 },
+                                trailingIcon = if (editing == null) {
+                                    {
+                                        IconButton(onClick = { pickerOpen = true }) {
+                                            Icon(Icons.Default.EmojiEmotions, contentDescription = "GIFs and stickers", tint = LocalBants.current.muted)
+                                        }
+                                    }
+                                } else null,
                                 placeholder = { Text("Say something cheeky…") },
                                 maxLines = 5,
                                 shape = FieldShape,
@@ -425,6 +501,17 @@ fun ChatScreen(convId: Long, nav: Navigator) {
                             conv = conv,
                             myId = myId,
                             showSender = showSender,
+                            highlighted = highlight == m.id,
+                            canSaveSticker = m.kind == "sticker" && m.media != null && myStickers.none { it.media == m.media },
+                            onSaveSticker = {
+                                m.media?.let { media ->
+                                    scope.launch {
+                                        runCatching { Bants.saveSticker(media) }
+                                            .onSuccess { toast(context, "Saved to your stickers") }
+                                            .onFailure { toast(context, it.message) }
+                                    }
+                                }
+                            },
                             quoted = quoted,
                             quotedName = quoted?.let { nameOf(it.senderId) },
                             onQuote = { m.replyTo?.let { jumpTo(it) } },
@@ -440,7 +527,7 @@ fun ChatScreen(convId: Long, nav: Navigator) {
                             onEdit = {
                                 editing = m
                                 replyingTo = null
-                                text = m.body
+                                field = TextFieldValue(m.body, TextRange(m.body.length))
                             },
                             onDelete = {
                                 scope.launch { runCatching { Bants.deleteMessage(m) }.onFailure { toast(context, it.message) } }
@@ -460,6 +547,21 @@ fun ChatScreen(convId: Long, nav: Navigator) {
         }
     }
     video?.let { VideoDialog(it) { video = null } }
+    if (pickerOpen) {
+        GifStickerSheet(
+            onDismiss = { pickerOpen = false },
+            onGif = { gif ->
+                pickerOpen = false
+                Bants.sendGif(convId, gif, replyingTo?.id)
+                replyingTo = null
+            },
+            onSticker = { media ->
+                pickerOpen = false
+                Bants.sendSticker(convId, media, replyingTo?.id)
+                replyingTo = null
+            },
+        )
+    }
 
     confirm?.let { what ->
         AlertDialog(
@@ -520,6 +622,9 @@ private fun MessageBubble(
     conv: Conversation,
     myId: Long,
     showSender: Boolean,
+    highlighted: Boolean,
+    canSaveSticker: Boolean,
+    onSaveSticker: () -> Unit,
     quoted: Message?,
     quotedName: String?,
     onQuote: () -> Unit,
@@ -538,8 +643,9 @@ private fun MessageBubble(
     val shownX by animateFloatAsState(dragX, label = "swipe")
     val canInteract = !m.deleted && !m.pending && !m.failed
     val b = LocalBants.current
+    val isSticker = m.kind == "sticker" && !m.deleted
     val bubble = if (mine) BantsPurple else b.theirBubble
-    val ink = if (mine) Color.White else b.onCard
+    val ink = if (isSticker) b.onCard else if (mine) Color.White else b.onCard
     val faint = ink.copy(alpha = 0.7f)
     val shape = RoundedCornerShape(
         topStart = 18.dp,
@@ -549,7 +655,10 @@ private fun MessageBubble(
     )
 
     Column(
-        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        Modifier
+            .fillMaxWidth()
+            .background(if (highlighted) BantsYellow.copy(alpha = 0.45f) else Color.Transparent, RoundedCornerShape(12.dp))
+            .padding(vertical = 2.dp),
         horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
     ) {
         Box(Modifier.offset { IntOffset(shownX.roundToInt(), 0) }) {
@@ -564,7 +673,10 @@ private fun MessageBubble(
             Box(
                 modifier = Modifier
                     .widthIn(max = 300.dp)
-                    .chunky(shape, bubble, b.outline, shadow = if (mine) 3.dp else 0.dp)
+                    .then(
+                        if (isSticker) Modifier
+                        else Modifier.chunky(shape, bubble, b.outline, shadow = if (mine) 3.dp else 0.dp),
+                    )
                     .draggable(
                         orientation = Orientation.Horizontal,
                         enabled = canInteract,
@@ -579,7 +691,7 @@ private fun MessageBubble(
                         onLongClick = { if (!m.deleted && !m.pending) menu = true },
                     ),
             ) {
-                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Column(Modifier.padding(horizontal = if (isSticker) 0.dp else 12.dp, vertical = if (isSticker) 0.dp else 8.dp)) {
                     if (showSender) {
                         val name = conv.members.firstOrNull { it.user.id == m.senderId }?.user?.displayName ?: "Someone"
                         Text(name, color = colourFor(name), fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
@@ -620,11 +732,20 @@ private fun MessageBubble(
                                         .clickable { onImage(imageModel) },
                                 )
                             }
+                            "sticker" -> AsyncImage(
+                                model = imageModel,
+                                contentDescription = "Sticker",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(150.dp)
+                                    .chunky(RoundedCornerShape(22.dp), b.card, b.outline, shadow = 3.dp),
+                            )
                             "audio" -> AudioBubble(m, ink, if (mine) ReadTick else MaterialTheme.colorScheme.primary)
                             "video" -> VideoTile(m, ink, onVideo)
                             "file" -> FileTile(m, ink)
                         }
-                        if (m.body.isNotEmpty()) Text(m.body, color = ink, fontSize = 16.sp)
+                        if (m.body.isNotEmpty()) MessageText(m, conv, myId, ink)
+                        m.meta?.preview?.let { LinkPreviewCard(it, mine) }
                     }
                     Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                         if (m.failed) {
@@ -665,6 +786,13 @@ private fun MessageBubble(
                         leadingIcon = { Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = null) },
                         onClick = { menu = false; onReply() },
                     )
+                    if (canSaveSticker) {
+                        DropdownMenuItem(
+                            text = { Text("Save sticker") },
+                            leadingIcon = { Icon(Icons.Default.BookmarkAdd, contentDescription = null) },
+                            onClick = { menu = false; onSaveSticker() },
+                        )
+                    }
                 }
                 if (m.body.isNotEmpty()) {
                     DropdownMenuItem(

@@ -22,6 +22,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material3.RadioButton
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -81,6 +83,7 @@ fun ChatInfoScreen(convId: Long, nav: Navigator) {
     var uploading by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<String?>(null) }
     var memberMenu by remember { mutableStateOf<Long?>(null) }
+    var pickingTimer by remember { mutableStateOf(false) }
 
     LaunchedEffect(convId) { runCatching { Bants.refreshConversation(convId) } }
 
@@ -168,6 +171,18 @@ fun ChatInfoScreen(convId: Long, nav: Navigator) {
                 )
             }
 
+            item {
+                val canChange = !conv.isGroup || iAmAdmin
+                ListItem(
+                    headlineContent = { Text("Disappearing messages") },
+                    supportingContent = {
+                        Text(disappearLabel(conv.disappearAfter) + if (!canChange) " · only admins can change this" else "")
+                    },
+                    leadingContent = { Icon(Icons.Default.Timer, contentDescription = null) },
+                    modifier = if (canChange) Modifier.clickable { pickingTimer = true } else Modifier,
+                )
+            }
+
             if (conv.isGroup) {
                 item { SectionLabel("${conv.members.size} members") }
                 if (iAmAdmin) {
@@ -216,6 +231,32 @@ fun ChatInfoScreen(convId: Long, nav: Navigator) {
                 Spacer(Modifier.size(32.dp))
             }
         }
+    }
+
+    if (pickingTimer) {
+        AlertDialog(
+            onDismissRequest = { pickingTimer = false },
+            title = { Text("Disappearing messages") },
+            text = {
+                Column {
+                    Text("New messages vanish for everyone after this long.", color = LocalBants.current.muted, modifier = Modifier.padding(bottom = 8.dp))
+                    listOf(0L, 86_400L, 604_800L, 7_776_000L).forEach { secs ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable {
+                                pickingTimer = false
+                                act { Bants.setDisappearing(convId, secs) }
+                            }.padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = conv.disappearAfter == secs, onClick = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(disappearLabel(secs))
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { pickingTimer = false }) { Text("Close") } },
+        )
     }
 
     if (renaming) {
@@ -323,4 +364,12 @@ fun AddMembersScreen(convId: Long, nav: Navigator) {
             }
         }
     }
+}
+
+fun disappearLabel(seconds: Long): String = when (seconds) {
+    0L -> "Off"
+    86_400L -> "24 hours"
+    604_800L -> "7 days"
+    7_776_000L -> "90 days"
+    else -> "${seconds / 3600} hours"
 }

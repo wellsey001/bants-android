@@ -13,6 +13,7 @@ data class User(
     val online: Boolean? = null,
     val lastSeen: Long? = null,
     val friendCode: String? = null,
+    val isAdmin: Boolean = false,
 )
 
 @Serializable
@@ -30,11 +31,44 @@ data class Message(
     val deleted: Boolean = false,
     val reactions: List<Reaction> = emptyList(),
     val mediaInfo: MediaInfo? = null,
+    val meta: MessageMeta? = null,
+    val expiresAt: Long? = null,
     // Local-only state for messages still on their way to the server.
     @Transient val pending: Boolean = false,
     @Transient val failed: Boolean = false,
     @Transient val localUri: String? = null,
 )
+
+@Serializable
+data class MessageMeta(val mentions: List<Long> = emptyList(), val preview: LinkPreview? = null)
+
+@Serializable
+data class LinkPreview(
+    val url: String,
+    val title: String = "",
+    val description: String? = null,
+    val siteName: String? = null,
+    val image: String? = null,
+)
+
+@Serializable
+data class Sticker(val id: Long, val media: String, val createdAt: Long = 0)
+
+@Serializable
+data class Gif(
+    val id: String,
+    val title: String = "",
+    val preview: String,
+    val url: String,
+    val width: Int = 200,
+    val height: Int = 200,
+)
+
+@Serializable
+data class GifPage(val gifs: List<Gif> = emptyList(), val nextOffset: Int = 0)
+
+@Serializable
+data class SearchResults(val results: List<Message> = emptyList())
 
 @Serializable
 data class Reaction(val emoji: String, val userIds: List<Long> = emptyList())
@@ -59,6 +93,9 @@ data class Conversation(
     val createdAt: Long = 0,
     val updatedAt: Long = 0,
     val muted: Boolean = false,
+    val pinned: Boolean = false,
+    val archived: Boolean = false,
+    val disappearAfter: Long = 0,
     val unreadCount: Int = 0,
     val lastMessage: Message? = null,
     val members: List<Member> = emptyList(),
@@ -83,7 +120,12 @@ data class MessagesPage(val messages: List<Message> = emptyList(), val hasMore: 
 data class MediaUpload(val id: String, val mime: String = "", val size: Long = 0, val filename: String = "")
 
 @Serializable
-data class ServerInfo(val name: String = "", val registration: String = "open", val maxUploadBytes: Long = 0)
+data class ServerInfo(
+    val name: String = "",
+    val registration: String = "open",
+    val maxUploadBytes: Long = 0,
+    val gifs: Boolean = false,
+)
 
 @Serializable
 data class AddContactResult(
@@ -105,6 +147,8 @@ data class OutboxItem(
     val mime: String? = null,
     val filename: String? = null,
     val mediaId: String? = null,
+    val gifUrl: String? = null,
+    val gifPreview: String? = null,
     val replyTo: Long? = null,
     val createdAt: Long,
     val failed: Boolean = false,
@@ -116,14 +160,15 @@ fun OutboxItem.toMessage(myId: Long) = Message(
     conversationId = conversationId,
     senderId = myId,
     clientId = clientId,
-    kind = kind,
+    kind = if (kind == "gif") "image" else kind,
+    media = if (file == null) mediaId else null,
     body = body,
     replyTo = replyTo,
     createdAt = createdAt,
     mediaInfo = if (file != null) MediaInfo(mime ?: "", java.io.File(file).length(), filename ?: "") else null,
     pending = !failed,
     failed = failed,
-    localUri = file?.let { "file://$it" },
+    localUri = file?.let { "file://$it" } ?: gifPreview,
 )
 
 /** What's saved on the phone so chats open instantly and work offline. */
@@ -151,9 +196,11 @@ fun Conversation.avatarMedia(myId: Long): String? = if (isGroup) avatar else pee
 
 fun Message.preview(): String = when {
     deleted -> "Message deleted"
-    kind == "image" -> if (body.isNotBlank()) "📷 $body" else "📷 Photo"
+    kind == "image" && mediaInfo?.mime != "image/gif" -> if (body.isNotBlank()) "📷 $body" else "📷 Photo"
     kind == "video" -> "🎥 Video"
     kind == "audio" -> "🎤 Voice note"
     kind == "file" -> "📎 " + (mediaInfo?.filename?.ifBlank { null } ?: "File")
+    kind == "sticker" -> "Sticker"
+    kind == "image" && mediaInfo?.mime == "image/gif" -> "GIF"
     else -> body
 }

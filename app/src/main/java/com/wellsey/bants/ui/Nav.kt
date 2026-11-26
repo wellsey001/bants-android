@@ -20,7 +20,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 
 sealed interface Screen {
     data object Home : Screen
-    data class Chat(val id: Long) : Screen
+    data class Chat(val id: Long, val jumpTo: Long? = null) : Screen
     data object NewChat : Screen
     data object AddContact : Screen
     data object Requests : Screen
@@ -28,6 +28,8 @@ sealed interface Screen {
     data object Profile : Screen
     data class ChatInfo(val id: Long) : Screen
     data class AddMembers(val id: Long) : Screen
+    data object Archived : Screen
+    data object Search : Screen
 }
 
 /** A tiny back stack: enough for this app without pulling in a navigation library. */
@@ -76,7 +78,7 @@ fun BantsRoot(openConversation: MutableStateFlow<Long?>) {
 
     when (val screen = nav.current) {
         Screen.Home -> HomeScreen(nav)
-        is Screen.Chat -> key(screen.id) { ChatScreen(screen.id, nav) }
+        is Screen.Chat -> key(screen.id, screen.jumpTo) { ChatScreen(screen.id, nav, screen.jumpTo) }
         Screen.NewChat -> NewChatScreen(nav)
         Screen.AddContact -> AddContactScreen(nav)
         Screen.Requests -> RequestsScreen(nav)
@@ -84,6 +86,8 @@ fun BantsRoot(openConversation: MutableStateFlow<Long?>) {
         Screen.Profile -> ProfileScreen(nav)
         is Screen.ChatInfo -> key(screen.id) { ChatInfoScreen(screen.id, nav) }
         is Screen.AddMembers -> key(screen.id) { AddMembersScreen(screen.id, nav) }
+        Screen.Archived -> ArchivedScreen(nav)
+        Screen.Search -> SearchScreen(nav)
     }
 }
 

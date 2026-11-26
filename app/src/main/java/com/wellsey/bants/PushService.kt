@@ -15,7 +15,8 @@ class PushService : FirebaseMessagingService() {
         // If the app is open and connected, the live connection has already handled it.
         if (Bants.inForeground && Bants.connected.value) return
         val convId = data["conversationId"]?.toLongOrNull()
-        if (convId != null && Bants.conversations.value[convId]?.muted == true) return
+        val mentioned = data["mentioned"] == "1"
+        if (convId != null && Bants.conversations.value[convId]?.muted == true && !mentioned) return
         Notifications.showPush(applicationContext, data)
         if (data["type"] == "message") Bants.onPushMessage()
     }

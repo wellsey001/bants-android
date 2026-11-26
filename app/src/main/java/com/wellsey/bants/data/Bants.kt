@@ -74,6 +74,8 @@ object Bants {
     val requests = MutableStateFlow(Requests())
     val typing = MutableStateFlow<Map<Long, Set<Long>>>(emptyMap())
     val outbox = MutableStateFlow<List<OutboxItem>>(emptyList())
+    val stickers = MutableStateFlow<List<Sticker>>(emptyList())
+    val gifsAvailable = MutableStateFlow(false)
     val connected: StateFlow<Boolean> get() = realtime.connected
 
     /** Short messages for the user (shown as toasts). */
@@ -127,6 +129,19 @@ object Bants {
             loggedIn.value = true
             startSession()
         }
+        scope.launch {
+            while (true) {
+                delay(30_000)
+                pruneExpired()
+            }
+        }
+    }
+
+    /** Drops disappearing messages whose time is up, even if the server hasn't told us yet. */
+    private fun pruneExpired() {
+        val now = System.currentTimeMillis()
+        if (messages.value.values.none { list -> list.any { (it.expiresAt ?: Long.MAX_VALUE) <= now } }) return
+        messages.update { all -> all.mapValues { (_, list) -> list.filter { (it.expiresAt ?: Long.MAX_VALUE) > now } } }
     }
 
     private fun startSession() {
@@ -209,6 +224,7 @@ object Bants {
         session.serverUrl = url
         val info = api.get<ServerInfo>("/api/server")
         if (info.maxUploadBytes > 0) maxUploadBytes = info.maxUploadBytes
+        gifsAvailable.value = info.gifs
         return info
     }
 
@@ -262,6 +278,7 @@ object Bants {
         requests.value = Requests()
         typing.value = emptyMap()
         outbox.value = emptyList()
+        stickers.value = emptyList()
         store.clear()
         Notifications.cancelAll(appContext)
     }
@@ -301,6 +318,7 @@ object Bants {
         launch { refreshContacts() }
         launch { refreshRequests() }
         launch { runCatching { serverInfo(session.serverUrl) } }
+        launch { runCatching { loadStickers() } }
     }
 
     suspend fun refreshMe() = setMe(call { api.get<User>("/api/me") })
@@ -410,6 +428,14 @@ object Bants {
         enqueue(newItem(convId, "audio", replyTo).copy(file = file.absolutePath, mime = "audio/mp4", filename = "Voice note.m4a"))
     }
 
+    fun sendGif(convId: Long, gif: Gif, replyTo: Long? = null) {
+        enqueue(newItem(convId, "gif", replyTo).copy(gifUrl = gif.url, gifPreview = gif.preview))
+    }
+
+    fun sendSticker(convId: Long, mediaId: String, replyTo: Long? = null) {
+        enqueue(newItem(convId, "sticker", replyTo).copy(mediaId = mediaId))
+    }
+
     fun newOutboxFile(extension: String): File = File(store.outboxDir, "${UUID.randomUUID()}.$extension")
 
     private fun prepareMedia(convId: Long, uri: Uri, replyTo: Long?): OutboxItem? {
@@ -484,6 +510,18 @@ object Bants {
     private suspend fun sendOne(item: OutboxItem): Boolean {
         var current = item
         try {
+            if (current.gifUrl != null) {
+                val sent = call {
+                    api.post<Message>("/api/conversations/${current.conversationId}/gif", buildJsonObject {
+                        put("clientId", current.clientId)
+                        put("url", current.gifUrl)
+                        current.replyTo?.let { put("replyTo", it) }
+                    })
+                }
+                putMessages(sent.conversationId, listOf(sent))
+                onNewMessage(sent, notify = false)
+                return true
+            }
             if (current.file != null && current.mediaId == null) {
                 val f = File(current.file!!)
                 if (!f.exists()) throw ApiException(400, "The file isn't there any more")
@@ -497,6 +535,7 @@ object Bants {
                     put("clientId", current.clientId)
                     if (current.body.isNotEmpty()) put("body", current.body)
                     current.mediaId?.let { put("media", it) }
+                    if (current.kind == "sticker") put("kind", "sticker")
                     current.replyTo?.let { put("replyTo", it) }
                 })
             }
@@ -712,6 +751,72 @@ object Bants {
         messages.update { it - convId }
     }
 
+    // ───────────── pins, archive, disappearing ─────────────
+
+    suspend fun setPinned(convId: Long, pinned: Boolean) =
+        upsert(call { api.patch<Conversation>("/api/conversations/$convId", buildJsonObject { put("pinned", pinned) }) })
+
+    suspend fun setArchived(convId: Long, archived: Boolean) =
+        upsert(call { api.patch<Conversation>("/api/conversations/$convId", buildJsonObject { put("archived", archived) }) })
+
+    suspend fun setDisappearing(convId: Long, seconds: Long) =
+        upsert(call { api.patch<Conversation>("/api/conversations/$convId", buildJsonObject { put("disappearAfter", seconds) }) })
+
+    // ───────────── search ─────────────
+
+    suspend fun search(text: String): List<Message> =
+        call { api.get<SearchResults>("/api/search?q=${Uri.encode(text.trim())}") }.results
+
+    /** Loads older pages until a message is on screen (for jumping to a search result). */
+    suspend fun loadUntil(convId: Long, messageId: Long): Boolean {
+        if (messages.value[convId] == null) loadMessages(convId)
+        repeat(40) {
+            if (messages.value[convId].orEmpty().any { it.id == messageId }) return true
+            if (hasMore.value[convId] != true) return false
+            loadOlder(convId)
+        }
+        return messages.value[convId].orEmpty().any { it.id == messageId }
+    }
+
+    // ───────────── GIFs & stickers ─────────────
+
+    suspend fun findGifs(text: String, offset: Int): GifPage =
+        call { api.get<GifPage>("/api/gifs?q=${Uri.encode(text.trim())}&offset=$offset") }
+
+    suspend fun loadStickers() {
+        stickers.value = call { api.get<List<Sticker>>("/api/stickers") }
+    }
+
+    /** Turns a photo into a square sticker and adds it to your collection. */
+    suspend fun makeSticker(uri: Uri) {
+        val bytes = withContext(Dispatchers.IO) { squareSticker(uri) }
+        val media = upload(bytes.toRequestBody("image/webp".toMediaType()), "sticker.webp")
+        saveSticker(media.id)
+    }
+
+    suspend fun saveSticker(mediaId: String) {
+        val s = call { api.post<Sticker>("/api/stickers", buildJsonObject { put("media", mediaId) }) }
+        stickers.update { list -> listOf(s) + list.filter { it.id != s.id } }
+    }
+
+    suspend fun deleteSticker(id: Long) {
+        call { api.delete<JsonObject>("/api/stickers/$id") }
+        stickers.update { list -> list.filter { it.id != id } }
+    }
+
+    private fun squareSticker(uri: Uri): ByteArray {
+        val (jpeg, _) = compressImage(uri, maxSide = 1024)
+        val src = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size) ?: throw ApiException(0, "Couldn't read that image")
+        val side = minOf(src.width, src.height)
+        val square = Bitmap.createBitmap(src, (src.width - side) / 2, (src.height - side) / 2, side, side)
+        val scaled = Bitmap.createScaledBitmap(square, 512, 512, true)
+        val out = ByteArrayOutputStream()
+        @Suppress("DEPRECATION")
+        val format = if (Build.VERSION.SDK_INT >= 30) Bitmap.CompressFormat.WEBP_LOSSY else Bitmap.CompressFormat.WEBP
+        scaled.compress(format, 88, out)
+        return out.toByteArray()
+    }
+
     // ───────────── live events ─────────────
 
     private fun handle(ev: JsonObject) {
@@ -759,6 +864,17 @@ object Bants {
                     val u = decode<User>(ev["user"])
                     updateUser(u.id) { old -> u.copy(online = u.online ?: old.online, lastSeen = u.lastSeen ?: old.lastSeen, friendCode = old.friendCode) }
                 }
+                "message.removed" -> {
+                    val convId = ev.long("conversationId")
+                    val ids = (ev["ids"] as? JsonArray)?.mapNotNull { it.jsonPrimitive.longOrNull }?.toSet().orEmpty()
+                    messages.update { all ->
+                        val list = all[convId] ?: return@update all
+                        all + (convId to list.filter { it.id !in ids })
+                    }
+                    if (conversations.value[convId]?.lastMessage?.id?.let { it in ids } == true) {
+                        scope.launch { runCatching { refreshConversation(convId) } }
+                    }
+                }
                 "conversation.updated" -> upsert(decode<Conversation>(ev["conversation"]))
                 "conversation.removed" -> {
                     val id = ev.long("conversationId")
@@ -791,6 +907,7 @@ object Bants {
                 val isNewer = (c.lastMessage?.id ?: 0) < m.id
                 all + (c.id to c.copy(
                     lastMessage = if (isNewer || c.lastMessage?.id == m.id) m else c.lastMessage,
+                    archived = if (!mine && isNewer) false else c.archived,
                     updatedAt = maxOf(c.updatedAt, m.createdAt),
                     unreadCount = if (!mine && !viewing && isNewer) c.unreadCount + 1 else c.unreadCount,
                 ))
@@ -804,7 +921,7 @@ object Bants {
         })
         if (viewing) {
             markRead(m.conversationId)
-        } else if (notify && conv?.muted != true) {
+        } else if (notify && (conv?.muted != true || myId in m.meta?.mentions.orEmpty())) {
             val c = conversations.value[m.conversationId]
             val sender = c?.members?.firstOrNull { it.user.id == m.senderId }?.user
             Notifications.showMessage(appContext, c, m, sender, myId)

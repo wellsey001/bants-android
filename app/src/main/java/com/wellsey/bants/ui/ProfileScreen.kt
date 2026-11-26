@@ -138,6 +138,15 @@ fun ProfileScreen(nav: Navigator) {
                 modifier = Modifier.fillMaxWidth(),
             )
 
+            if (me?.isAdmin == true) {
+                ChunkyButton(
+                    "Open server admin",
+                    onClick = { openUrl(context, Bants.session.serverUrl + "/admin") },
+                    fill = BantsYellow,
+                    content = BantsInk,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             FriendCodeCard(me?.friendCode)
             TextButton(onClick = { confirmReset = true }) { Text("Get a new friend code") }
 
