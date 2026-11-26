@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bants status-bar notification icon (white silhouette, Android tints it). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="146"
+    android:viewportHeight="146">
+    <group android:translateX="-26" android:translateY="-35">
+        <path android:fillColor="#FFFFFF" android:fillType="evenOdd"
+            android:pathData="M58 40 H120 A29 29 0 0 1 120 98 H58 Z M58 104 H128 A30 30 0 0 1 128 164 H82 L40 176 L58 150 Z M82 67 A8 8 0 0 0 98 67 Z M108 67 A8 8 0 0 0 124 67 Z M81 53.5 H98 A2.5 2.5 0 0 1 98 58.5 H81 A2.5 2.5 0 0 1 81 53.5 Z M105.2 52.4 Q117 41 128.4 48.6 A2.5 2.5 0 0 1 125.6 52.8 Q117 47 108.8 55.6 A2.5 2.5 0 0 1 105.2 52.4 Z M86 128 Q110 134 125 115.5 A4 4 0 0 1 131 120.5 Q111 142 86 136 A4 4 0 0 1 86 128 Z" />
+    </group>
+</vector>

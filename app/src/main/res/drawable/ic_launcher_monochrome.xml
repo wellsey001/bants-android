@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bants themed (monochrome) icon for Android 13+. Face is cut out of the B. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="0.35"
+        android:scaleY="0.35"
+        android:translateX="19.35"
+        android:translateY="16.2">
+        <path android:fillColor="#FFFFFF" android:fillType="evenOdd"
+            android:pathData="M58 40 H120 A29 29 0 0 1 120 98 H58 Z M58 104 H128 A30 30 0 0 1 128 164 H82 L40 176 L58 150 Z M82 67 A8 8 0 0 0 98 67 Z M108 67 A8 8 0 0 0 124 67 Z M81 53.5 H98 A2.5 2.5 0 0 1 98 58.5 H81 A2.5 2.5 0 0 1 81 53.5 Z M105.2 52.4 Q117 41 128.4 48.6 A2.5 2.5 0 0 1 125.6 52.8 Q117 47 108.8 55.6 A2.5 2.5 0 0 1 105.2 52.4 Z M86 128 Q110 134 125 115.5 A4 4 0 0 1 131 120.5 Q111 142 86 136 A4 4 0 0 1 86 128 Z" />
+    </group>
+</vector>
