@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#5B4BFF</color>
+    <color name="ic_launcher_background">#FFD23F</color>
     <!-- Brand colours for the app theme -->
     <color name="bants_purple">#5B4BFF</color>
     <color name="bants_purple_dark">#3D2FE0</color>

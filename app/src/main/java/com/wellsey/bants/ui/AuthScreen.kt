@@ -85,12 +85,11 @@ fun AuthScreen() {
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Spacer(Modifier.height(24.dp))
-        Box(
-            Modifier.size(96.dp).chunky(RoundedCornerShape(26.dp), BantsPurple, LocalBants.current.outline, shadow = 5.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Image(painterResource(R.drawable.ic_launcher_foreground), contentDescription = "Bants logo", modifier = Modifier.size(144.dp))
-        }
+        Image(
+            painterResource(R.drawable.bants_logo),
+            contentDescription = "Bants logo",
+            modifier = Modifier.height(120.dp),
+        )
         Sticker("bants", size = 48.sp, modifier = Modifier.padding(top = 6.dp))
         Text(
             "Chat rubbish with your mates.",
