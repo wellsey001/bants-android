@@ -178,9 +178,28 @@ object Bants {
     fun onPushMessage() {
         if (!loggedIn.value) return
         realtime.reconnectNow()
+        if (!inForeground) pauseSoon()
+    }
+
+    private var pauseJob: kotlinx.coroutines.Job? = null
+
+    /** Shortly after leaving the app, drop the live connection so pushes take over. */
+    fun onBackground() {
+        inForeground = false
+        pauseSoon()
+    }
+
+    private fun pauseSoon() {
+        pauseJob?.cancel()
+        pauseJob = scope.launch {
+            kotlinx.coroutines.delay(15_000)
+            // Stay connected during a call: the call needs the connection for signalling.
+            if (!inForeground && !com.wellsey.bants.calls.CallManager.inCall) realtime.pause()
+        }
     }
 
     fun onForeground() {
+        pauseJob?.cancel()
         inForeground = true
         if (loggedIn.value) {
             realtime.reconnectNow()

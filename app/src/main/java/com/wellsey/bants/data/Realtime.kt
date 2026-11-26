@@ -26,6 +26,7 @@ class Realtime(
 
     private var socket: WebSocket? = null
     @Volatile private var wanted = false
+    @Volatile private var paused = false
     private var attempt = 0
     private var reconnectJob: Job? = null
 
@@ -42,8 +43,22 @@ class Realtime(
         connected.value = false
     }
 
+    /**
+     * Hang up while the app is in the background, so the server knows to send push
+     * notifications instead (phones often freeze background apps, leaving a dead connection).
+     */
+    fun pause() {
+        if (!wanted) return
+        paused = true
+        reconnectJob?.cancel()
+        socket?.close(1000, null)
+        socket = null
+        connected.value = false
+    }
+
     /** Reconnect straight away (e.g. when the app comes back to the foreground). */
     fun reconnectNow() {
+        paused = false
         if (!wanted || socket != null) return
         reconnectJob?.cancel()
         attempt = 0
@@ -99,7 +114,7 @@ class Realtime(
             events.tryEmit(JsonObject(mapOf("type" to JsonPrimitive("auth.lost"))))
             return
         }
-        if (!wanted) return
+        if (!wanted || paused) return
         val wait = min(30_000L, 1_000L * (1L shl min(attempt, 5)))
         attempt++
         reconnectJob = scope.launch {

@@ -502,6 +502,8 @@ object CallManager {
             delay(if (text != null) 1_600 else 300)
             if (state.value?.status == CallStatus.Ended) state.value = null
         }
+        // Calls keep the connection open; once over, let it drop again if the app is in the background.
+        if (!Bants.inForeground) Bants.onBackground()
     }
 
     private fun releaseMedia() {

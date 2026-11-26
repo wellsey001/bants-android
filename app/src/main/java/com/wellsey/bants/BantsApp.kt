@@ -23,9 +23,7 @@ class BantsApp : Application(), ImageLoaderFactory {
         com.wellsey.bants.calls.IncomingCallNotification.createChannel(this)
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) = Bants.onForeground()
-            override fun onStop(owner: LifecycleOwner) {
-                Bants.inForeground = false
-            }
+            override fun onStop(owner: LifecycleOwner) = Bants.onBackground()
         })
     }
 
