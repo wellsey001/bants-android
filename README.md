@@ -13,6 +13,11 @@ A WhatsApp-style messaging app for your own [Bants server](https://github.com/we
 - Photos (resized before upload), videos, files and hold-to-record voice notes
 - Swipe a message to reply; long-press to react with an emoji
 - Group info: members, admins, add or remove people, rename, group picture
+- GIF search and your own stickers (make them from photos, or save ones friends send)
+- Pin, archive and mute chats; search all your messages
+- @mentions in groups (they reach you even if you've muted the chat)
+- Link previews and tappable links
+- Disappearing messages (24 hours, 7 days or 90 days)
 - Chats are saved on the phone, so they open instantly and work offline; messages you send offline go out when you're back online
 - Live delivery, typing indicators, online and last seen
 - Ticks: ✓ sent, ✓✓ delivered, blue ✓✓ read
