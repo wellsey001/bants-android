@@ -99,7 +99,7 @@ fun SoundsScreen(nav: Navigator) {
                 }
             }
             Text(
-                "Tap a sound to hear it. Your choices are used for notifications too. " +
+                "Tap a sound to hear it. Sounds play at your phone's notification volume, and your choices are used for notifications too. " +
                     "If a notification still plays an old sound, check Bants in your phone's notification settings.",
                 fontSize = 13.sp,
                 color = b.muted,

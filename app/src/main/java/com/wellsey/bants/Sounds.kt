@@ -12,11 +12,11 @@ import com.wellsey.bants.data.Bants
  */
 object Sounds {
     enum class Kind(val key: String, val label: String, val about: String, val volume: Float, val default: Style) {
-        Message("message", "New message", "When a message arrives", 0.8f, Style.Arcade),
-        Incoming("incoming", "In the chat", "A message arrives in the chat you're looking at", 0.6f, Style.Crisp),
-        Sent("sent", "Sent", "Your message reaches the server", 0.45f, Style.Crisp),
-        Mention("mention", "Mentions", "Someone @mentions you", 0.8f, Style.ToyBox),
-        Request("request", "Contact requests", "Someone adds you", 0.8f, Style.Crisp),
+        Message("message", "New message", "When a message arrives", 0.6f, Style.Arcade),
+        Incoming("incoming", "In the chat", "A message arrives in the chat you're looking at", 0.4f, Style.Crisp),
+        Sent("sent", "Sent", "Your message reaches the server", 0.3f, Style.Crisp),
+        Mention("mention", "Mentions", "Someone @mentions you", 0.6f, Style.ToyBox),
+        Request("request", "Contact requests", "Someone adds you", 0.6f, Style.Crisp),
     }
 
     enum class Style(val key: String, val label: String) {
@@ -49,8 +49,9 @@ object Sounds {
         pool = SoundPool.Builder()
             .setMaxStreams(3)
             .setAudioAttributes(
+                // Notification usage, so sounds follow the phone's notification volume slider.
                 AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_COMMUNICATION_INSTANT)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                     .build(),
             )
@@ -66,15 +67,21 @@ object Sounds {
     fun play(kind: Kind, enabled: Boolean) {
         if (!enabled || !::pool.isInitialized) return
         if (audio.ringerMode != AudioManager.RINGER_MODE_NORMAL) return
+        if (audio.getStreamVolume(AudioManager.STREAM_NOTIFICATION) == 0) return
         val now = System.currentTimeMillis()
         if (now - lastPlayed < 120) return
         lastPlayed = now
         playRaw(kind, styleFor(kind))
     }
 
-    /** Plays a sound on the Sounds screen, even on silent, so you can hear what you're picking. */
+    /** Plays a sound on the Sounds screen at your notification volume, so you hear what you'd really get. */
     fun preview(kind: Kind, style: Style) {
-        if (::pool.isInitialized) playRaw(kind, style)
+        if (!::pool.isInitialized) return
+        if (audio.getStreamVolume(AudioManager.STREAM_NOTIFICATION) == 0) {
+            Bants.notices.tryEmit("Your notification volume is off, so you won't hear the preview")
+            return
+        }
+        playRaw(kind, style)
     }
 
     private fun playRaw(kind: Kind, style: Style) {
