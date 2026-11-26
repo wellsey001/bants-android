@@ -49,6 +49,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Videocam
@@ -164,6 +165,7 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
     var highlight by remember { mutableStateOf<Long?>(null) }
     var editing by remember { mutableStateOf<Message?>(null) }
     var replyingTo by remember { mutableStateOf<Message?>(null) }
+    var unsending by remember { mutableStateOf<Message?>(null) }
     var viewer by remember { mutableStateOf<String?>(null) }
     var video by remember { mutableStateOf<Message?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
@@ -560,13 +562,34 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
                                 field = TextFieldValue(m.body, TextRange(m.body.length))
                             },
                             onDelete = {
-                                scope.launch { runCatching { Bants.deleteMessage(m) }.onFailure { toast(context, it.message) } }
+                                if (m.pending || m.failed) {
+                                    scope.launch { runCatching { Bants.deleteMessage(m) }.onFailure { toast(context, it.message) } }
+                                } else {
+                                    unsending = m
+                                }
                             },
                         )
                     }
                 }
             }
         }
+    }
+
+    unsending?.let { m ->
+        AlertDialog(
+            onDismissRequest = { unsending = null },
+            title = { Text("Unsend this message?") },
+            text = { Text("It'll disappear from everyone's phone in this chat, including any notification it popped up.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    unsending = null
+                    if (editing?.id == m.id) editing = null
+                    if (replyingTo?.id == m.id) replyingTo = null
+                    scope.launch { runCatching { Bants.deleteMessage(m) }.onFailure { toast(context, it.message ?: "Couldn't unsend") } }
+                }) { Text("Unsend", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = { unsending = null }) { Text("Cancel") } },
+        )
     }
 
     viewer?.let { url ->
@@ -850,8 +873,8 @@ private fun MessageBubble(
                 }
                 if (mine) {
                     DropdownMenuItem(
-                        text = { Text(if (m.failed) "Discard" else "Delete for everyone") },
-                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
+                        text = { Text(if (m.failed || m.pending) "Discard" else "Unsend") },
+                        leadingIcon = { Icon(if (m.failed || m.pending) Icons.Default.Delete else Icons.AutoMirrored.Filled.Undo, contentDescription = null) },
                         onClick = { menu = false; onDelete() },
                     )
                 }

@@ -374,8 +374,13 @@ object Bants {
             hasMore.update { it + (convId to page.hasMore) }
         } else {
             var after = lastReal
+            val knownFrom = messages.value[convId]?.filter { it.id > 0 }?.minOfOrNull { it.id } ?: lastReal
+            var first = true
             while (true) {
-                val page = call { api.get<MessagesPage>("/api/conversations/$convId/messages?after=$after&limit=200") }
+                val extra = if (first) "&knownFrom=$knownFrom" else ""
+                val page = call { api.get<MessagesPage>("/api/conversations/$convId/messages?after=$after&limit=200$extra") }
+                first = false
+                removeMessages(convId, page.removed.toSet())
                 putMessages(convId, page.messages)
                 if (!page.hasMore || page.messages.isEmpty()) break
                 after = page.messages.last().id
@@ -598,13 +603,32 @@ object Bants {
         putMessages(updated.conversationId, listOf(updated))
     }
 
+    /** Unsend: takes the message off everyone's phone. Disappears here straight away. */
     suspend fun deleteMessage(m: Message) {
         if (m.pending || m.failed) {
             discard(m)
             return
         }
-        val updated = call { api.delete<Message>("/api/messages/${m.id}") }
-        putMessages(updated.conversationId, listOf(updated))
+        removeMessages(m.conversationId, setOf(m.id))
+        try {
+            call { api.delete<JsonObject>("/api/messages/${m.id}") }
+        } catch (e: Exception) {
+            putMessages(m.conversationId, listOf(m)) // put it back
+            throw e
+        }
+    }
+
+    /** Drops unsent (or expired) messages from the cache, the chat list and any notification. */
+    fun removeMessages(convId: Long, ids: Set<Long>) {
+        if (ids.isEmpty()) return
+        messages.update { all ->
+            val list = all[convId] ?: return@update all
+            all + (convId to list.filter { it.id !in ids })
+        }
+        if (::appContext.isInitialized) Notifications.cancelIfShowing(appContext, convId, ids)
+        if (conversations.value[convId]?.lastMessage?.id?.let { it in ids } == true) {
+            scope.launch { runCatching { refreshConversation(convId) } }
+        }
     }
 
     /** Toggles your reaction. Shows straight away and corrects itself if the server disagrees. */
@@ -871,13 +895,7 @@ object Bants {
                 "message.removed" -> {
                     val convId = ev.long("conversationId")
                     val ids = (ev["ids"] as? JsonArray)?.mapNotNull { it.jsonPrimitive.longOrNull }?.toSet().orEmpty()
-                    messages.update { all ->
-                        val list = all[convId] ?: return@update all
-                        all + (convId to list.filter { it.id !in ids })
-                    }
-                    if (conversations.value[convId]?.lastMessage?.id?.let { it in ids } == true) {
-                        scope.launch { runCatching { refreshConversation(convId) } }
-                    }
+                    removeMessages(convId, ids)
                 }
                 "conversation.updated" -> upsert(decode<Conversation>(ev["conversation"]))
                 "conversation.removed" -> {

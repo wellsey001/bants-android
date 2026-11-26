@@ -114,7 +114,7 @@ data class Requests(
 data class AuthResponse(val token: String, val user: User)
 
 @Serializable
-data class MessagesPage(val messages: List<Message> = emptyList(), val hasMore: Boolean = false)
+data class MessagesPage(val messages: List<Message> = emptyList(), val hasMore: Boolean = false, val removed: List<Long> = emptyList())
 
 @Serializable
 data class MediaUpload(val id: String, val mime: String = "", val size: Long = 0, val filename: String = "")

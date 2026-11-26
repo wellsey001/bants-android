@@ -90,6 +90,7 @@ object Notifications {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pending)
+            .addExtras(android.os.Bundle().apply { putLong(EXTRA_MESSAGE, m.id) })
             .build()
         NotificationManagerCompat.from(context).notify(m.conversationId.toInt(), notification)
     }
@@ -160,6 +161,7 @@ object Notifications {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pending)
+            .apply { data["messageId"]?.toLongOrNull()?.let { id -> addExtras(android.os.Bundle().apply { putLong(EXTRA_MESSAGE, id) }) } }
             .build()
         NotificationManagerCompat.from(context).notify(if (convId > 0) convId.toInt() else -1, notification)
     }
@@ -185,6 +187,17 @@ object Notifications {
             .setContentIntent(pending)
             .build()
         NotificationManagerCompat.from(context).notify(convId.toInt(), n)
+    }
+
+    private const val EXTRA_MESSAGE = "bants.messageId"
+
+    /** Takes down a chat's notification if it's showing one of these (now unsent) messages. */
+    fun cancelIfShowing(context: Context, conversationId: Long, messageIds: Collection<Long>) {
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        val showing = runCatching { manager.activeNotifications }.getOrNull() ?: return
+        showing.filter { it.id == conversationId.toInt() }
+            .filter { it.notification.extras.getLong(EXTRA_MESSAGE, -1L) in messageIds }
+            .forEach { manager.cancel(it.tag, it.id) }
     }
 
     fun cancel(context: Context, conversationId: Long) {

@@ -18,6 +18,13 @@ class PushService : FirebaseMessagingService() {
                 Bants.onPushMessage()
                 return
             }
+            "unsend" -> {
+                val convId = data["conversationId"]?.toLongOrNull() ?: return
+                val id = data["messageId"]?.toLongOrNull() ?: return
+                Notifications.cancelIfShowing(applicationContext, convId, listOf(id))
+                Bants.removeMessages(convId, setOf(id))
+                return
+            }
             "missed_call" -> {
                 if (!Bants.inForeground) Notifications.showMissedCall(applicationContext, data)
                 return
