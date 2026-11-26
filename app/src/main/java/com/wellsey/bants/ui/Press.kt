@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.wellsey.bants.Haptics
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -30,13 +31,14 @@ import kotlinx.coroutines.launch
  * plays the full push, so every tap gets visible feedback.
  */
 @Composable
-fun rememberPress(interaction: InteractionSource): State<Float> {
+fun rememberPress(interaction: InteractionSource, buzz: Boolean = true): State<Float> {
     val anim = remember { Animatable(0f) }
     LaunchedEffect(interaction) {
         var down: Job? = null
         interaction.interactions.collect { i ->
             when (i) {
-                is PressInteraction.Press -> down = launch { anim.animateTo(1f, tween(70, easing = FastOutSlowInEasing)) }
+                is PressInteraction.Press -> down = launch {
+                    if (buzz) Haptics.tap() anim.animateTo(1f, tween(70, easing = FastOutSlowInEasing)) }
                 is PressInteraction.Release, is PressInteraction.Cancel -> {
                     val pushing = down
                     launch {
@@ -90,7 +92,7 @@ fun Modifier.chunkyClickable(
             enabled = enabled,
             role = role,
             onClickLabel = onClickLabel,
-            onLongClick = onLongClick,
+            onLongClick = onLongClick?.let { f -> { Haptics.longPress(); f() } },
             onLongClickLabel = onLongClickLabel,
             onClick = onClick,
         )
@@ -116,15 +118,15 @@ fun Modifier.bouncyClickable(
             enabled = enabled,
             role = role,
             onClickLabel = onClickLabel,
-            onLongClick = onLongClick,
+            onLongClick = onLongClick?.let { f -> { Haptics.longPress(); f() } },
             onClick = onClick,
         )
 }
 
 /** Squash-on-press for things that handle their own clicks, given their interaction source. */
 @Composable
-fun Modifier.pressScale(source: InteractionSource, squash: Float = 0.06f): Modifier {
-    val press = rememberPress(source)
+fun Modifier.pressScale(source: InteractionSource, squash: Float = 0.06f, buzz: Boolean = true): Modifier {
+    val press = rememberPress(source, buzz)
     return graphicsLayer {
         val s = 1f - squash * press.value.coerceAtLeast(-0.5f)
         scaleX = s

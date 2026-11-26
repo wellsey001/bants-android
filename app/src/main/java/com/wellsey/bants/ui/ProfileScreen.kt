@@ -150,7 +150,7 @@ fun ProfileScreen(nav: Navigator) {
                 )
             }
             ChunkyButton(
-                "Sounds",
+                "Sounds & vibration",
                 onClick = { nav.go(Screen.Sounds) },
                 fill = LocalBants.current.card,
                 content = LocalBants.current.onCard,

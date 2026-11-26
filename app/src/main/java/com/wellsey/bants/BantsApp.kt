@@ -17,6 +17,7 @@ class BantsApp : Application(), ImageLoaderFactory {
         Bants.init(this)
         Notifications.createChannel(this)
         Sounds.init(this)
+        Haptics.init(this)
         com.wellsey.bants.calls.CallManager.init(this)
         com.wellsey.bants.calls.CallService.createChannel(this)
         com.wellsey.bants.calls.IncomingCallNotification.createChannel(this)

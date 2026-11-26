@@ -32,12 +32,13 @@ fun SoundsScreen(nav: Navigator) {
     val context = LocalContext.current
     val b = LocalBants.current
     var soundsOn by remember { mutableStateOf(Bants.session.soundsOn) }
+    var hapticsOn by remember { mutableStateOf(Bants.session.hapticsOn) }
     // Bumped whenever a choice changes so the screen re-reads the saved styles.
     var version by remember { mutableIntStateOf(0) }
     val chosen = remember(version) { Sounds.Kind.values().associateWith { Sounds.styleFor(it) } }
     val allSame = chosen.values.toSet().singleOrNull()
 
-    Scaffold(topBar = { ChunkyTopBar("Sounds", nav) }) { padding ->
+    Scaffold(topBar = { ChunkyTopBar("Sounds & vibration", nav) }) { padding ->
         Column(
             Modifier
                 .padding(padding)
@@ -59,6 +60,24 @@ fun SoundsScreen(nav: Navigator) {
                     Switch(checked = soundsOn, onCheckedChange = {
                         soundsOn = it
                         Bants.session.soundsOn = it
+                    })
+                }
+            }
+
+            ChunkyCard(Modifier.fillMaxWidth(), shadow = 0.dp) {
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Vibrate on taps", fontWeight = FontWeight.Bold, color = b.onCard)
+                        Text(
+                            "A little buzz when you press buttons. Stays still when your phone is on silent.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = b.muted,
+                        )
+                    }
+                    Switch(checked = hapticsOn, onCheckedChange = {
+                        hapticsOn = it
+                        Bants.session.hapticsOn = it
+                        if (it) com.wellsey.bants.Haptics.tap()
                     })
                 }
             }

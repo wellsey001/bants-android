@@ -717,12 +717,12 @@ private fun MessageBubble(
                             dragX = 0f
                         },
                     )
-                    .pressScale(bubblePress, 0.035f)
+                    .pressScale(bubblePress, 0.035f, buzz = false)
                     .combinedClickable(
                         interactionSource = bubblePress,
                         indication = LocalIndication.current,
                         onClick = { if (m.failed) onRetry() },
-                        onLongClick = { if (!m.deleted && !m.pending) menu = true },
+                        onLongClick = { if (!m.deleted && !m.pending) { com.wellsey.bants.Haptics.longPress(); menu = true } },
                     ),
             ) {
                 Column(Modifier.padding(horizontal = if (isSticker) 0.dp else 12.dp, vertical = if (isSticker) 0.dp else 8.dp)) {
