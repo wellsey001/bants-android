@@ -127,7 +127,7 @@ object CallManager {
         val current = state.value
         if (current != null && current.status != CallStatus.Ended) return // already busy; the server handles that
         state.value = CallUi(callId, conversationId, callerId, callerName, callerAvatar, video, incoming = true, status = CallStatus.Incoming, speaker = video)
-        Ringer.startRinging(appContext)
+        Ringer.startRinging(appContext, video)
         if (Bants.inForeground) openCallScreen() else IncomingCallNotification.show(appContext, state.value!!)
     }
 

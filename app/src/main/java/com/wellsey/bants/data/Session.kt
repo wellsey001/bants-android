@@ -26,6 +26,11 @@ class Session(context: Context) {
         get() = prefs.getString("videoQuality", "auto") ?: "auto"
         set(value) = prefs.edit().putString("videoQuality", value).apply()
 
+    /** Bants' own call ringtones, or false for the phone's ringtone. */
+    var bantsRingtone: Boolean
+        get() = prefs.getBoolean("bantsRingtone", true)
+        set(value) = prefs.edit().putBoolean("bantsRingtone", value).apply()
+
     var hapticsOn: Boolean
         get() = prefs.getBoolean("haptics", true)
         set(value) = prefs.edit().putBoolean("haptics", value).apply()

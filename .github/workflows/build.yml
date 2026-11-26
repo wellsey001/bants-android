@@ -23,7 +23,22 @@ jobs:
         with:
           gradle-version: "8.9"
 
+      - name: Unpack the signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.BANTS_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::Add the BANTS_KEYSTORE_BASE64, BANTS_KEYSTORE_PASSWORD, BANTS_KEY_ALIAS and BANTS_KEY_PASSWORD secrets first"
+            exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
+          echo "BANTS_KEYSTORE_FILE=$RUNNER_TEMP/release.p12" >> "$GITHUB_ENV"
+
       - name: Build
+        env:
+          BANTS_KEYSTORE_PASSWORD: ${{ secrets.BANTS_KEYSTORE_PASSWORD }}
+          BANTS_KEY_ALIAS: ${{ secrets.BANTS_KEY_ALIAS }}
+          BANTS_KEY_PASSWORD: ${{ secrets.BANTS_KEY_PASSWORD }}
         run: gradle assembleRelease --no-daemon
 
       - name: Name the APK

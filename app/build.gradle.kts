@@ -23,13 +23,20 @@ android {
         versionName = "1.0.$build"
     }
 
+    // The release key is private: GitHub Actions writes it from the repo's secrets.
+    // Builds without it (e.g. on your own computer) are left unsigned rather than signed with
+    // a key anyone could copy.
+    val keystore = file(System.getenv("BANTS_KEYSTORE_FILE") ?: "release.p12")
+    val hasKey = keystore.exists() && System.getenv("BANTS_KEYSTORE_PASSWORD") != null
     signingConfigs {
-        // A fixed key kept in the repo, so each new build installs over the last one.
-        getByName("debug") {
-            storeFile = file("debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+        if (hasKey) {
+            create("bants") {
+                storeFile = keystore
+                storeType = "PKCS12"
+                storePassword = System.getenv("BANTS_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("BANTS_KEY_ALIAS") ?: "bants"
+                keyPassword = System.getenv("BANTS_KEY_PASSWORD") ?: System.getenv("BANTS_KEYSTORE_PASSWORD")
+            }
         }
     }
 
@@ -37,7 +44,7 @@ android {
         release {
             isMinifyEnabled = false
             isDebuggable = false
-            signingConfig = signingConfigs.getByName("debug")
+            if (hasKey) signingConfig = signingConfigs.getByName("bants")
         }
     }
 

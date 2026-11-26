@@ -33,6 +33,8 @@ fun SoundsScreen(nav: Navigator) {
     val b = LocalBants.current
     var soundsOn by remember { mutableStateOf(Bants.session.soundsOn) }
     var hapticsOn by remember { mutableStateOf(Bants.session.hapticsOn) }
+    var bantsRing by remember { mutableStateOf(Bants.session.bantsRingtone) }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { com.wellsey.bants.calls.Ringer.stop() } }
     // Bumped whenever a choice changes so the screen re-reads the saved styles.
     var version by remember { mutableIntStateOf(0) }
     val chosen = remember(version) { Sounds.Kind.values().associateWith { Sounds.styleFor(it) } }
@@ -61,6 +63,32 @@ fun SoundsScreen(nav: Navigator) {
                         soundsOn = it
                         Bants.session.soundsOn = it
                     })
+                }
+            }
+
+            ChunkyCard(Modifier.fillMaxWidth(), shadow = 0.dp) {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Bants ringtones for calls", fontWeight = FontWeight.Bold, color = b.onCard)
+                            Text(
+                                if (bantsRing) "Powerup ring, with a different version for voice and video calls."
+                                else "Calls use your phone's normal ringtone.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = b.muted,
+                            )
+                        }
+                        Switch(checked = bantsRing, onCheckedChange = {
+                            bantsRing = it
+                            Bants.session.bantsRingtone = it
+                        })
+                    }
+                    if (bantsRing) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ChunkyChip("▶ Voice call", false) { com.wellsey.bants.calls.Ringer.preview(context, video = false) }
+                            ChunkyChip("▶ Video call", false) { com.wellsey.bants.calls.Ringer.preview(context, video = true) }
+                        }
+                    }
                 }
             }
 
