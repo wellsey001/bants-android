@@ -109,6 +109,7 @@ fun Modifier.bouncyClickable(
     onClickLabel: String? = null,
     squash: Float = 0.06f,
     onLongClick: (() -> Unit)? = null,
+    onDoubleClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ): Modifier {
     val source = remember { MutableInteractionSource() }
@@ -120,7 +121,8 @@ fun Modifier.bouncyClickable(
             enabled = enabled,
             role = role,
             onClickLabel = onClickLabel,
-            onLongClick = onLongClick?.let { f -> { Haptics.longPress(); f() } },
+            onLongClick = onLongClick,
+            onDoubleClick = onDoubleClick,
             onClick = onClick,
         )
 }

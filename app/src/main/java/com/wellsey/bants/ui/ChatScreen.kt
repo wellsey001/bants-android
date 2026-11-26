@@ -751,6 +751,10 @@ private fun MessageBubble(
         horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
     ) {
         val bubblePress = remember { MutableInteractionSource() }
+        // Photos, videos, files and links handle their own taps, so they pass long-presses
+        // and double-taps back here: you can react to them like any other message.
+        val openMenu = { if (!m.deleted && !m.pending) { com.wellsey.bants.Haptics.longPress(); menu = true } }
+        val quickLove = { com.wellsey.bants.Haptics.tap(); onReact("❤️") }
         val slap = remember { Animatable(if (slapIn) 0f else 1f) }
         LaunchedEffect(Unit) { if (slap.value < 1f) slap.animateTo(1f, tween(650, easing = LinearEasing)) }
         Box(Modifier.offset { IntOffset(shownX.roundToInt(), 0) }.stickerSlap { slap.value }) {
@@ -783,7 +787,9 @@ private fun MessageBubble(
                         interactionSource = bubblePress,
                         indication = LocalIndication.current,
                         onClick = { if (m.failed) onRetry() },
-                        onLongClick = { if (!m.deleted && !m.pending) { com.wellsey.bants.Haptics.longPress(); menu = true } },
+                        onLongClick = openMenu,
+                        // Double-tap anyone's message for a quick ❤️.
+                        onDoubleClick = if (canInteract) ({ quickLove() }) else null,
                     ),
             ) {
                 Column(Modifier.padding(horizontal = if (isSticker) 0.dp else 12.dp, vertical = if (isSticker) 0.dp else 8.dp)) {
@@ -823,7 +829,11 @@ private fun MessageBubble(
                                         .padding(top = 2.dp, bottom = 4.dp)
                                         .size(240.dp)
                                         .clip(RoundedCornerShape(12.dp))
-                                        .bouncyClickable(squash = 0.04f) { onImage(imageModel) },
+                                        .bouncyClickable(
+                                            squash = 0.04f,
+                                            onLongClick = openMenu,
+                                            onDoubleClick = if (canInteract) ({ quickLove() }) else null,
+                                        ) { onImage(imageModel) },
                                 )
                             }
                             "sticker" -> AsyncImage(
@@ -835,11 +845,11 @@ private fun MessageBubble(
                                     .chunky(RoundedCornerShape(22.dp), b.card, b.outline, shadow = 3.dp),
                             )
                             "audio" -> AudioBubble(m, ink, if (mine) ReadTick else MaterialTheme.colorScheme.primary)
-                            "video" -> VideoTile(m, ink, onVideo)
-                            "file" -> FileTile(m, ink)
+                            "video" -> VideoTile(m, ink, onVideo, onLongPress = openMenu)
+                            "file" -> FileTile(m, ink, onLongPress = openMenu)
                         }
                         if (m.body.isNotEmpty()) MessageText(m, conv, myId, ink)
-                        m.meta?.preview?.let { LinkPreviewCard(it, mine) }
+                        m.meta?.preview?.let { LinkPreviewCard(it, mine, onLongPress = openMenu) }
                     }
                     Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                         if (m.failed) {

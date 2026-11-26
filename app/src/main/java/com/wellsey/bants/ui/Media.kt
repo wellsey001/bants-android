@@ -1,5 +1,8 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package com.wellsey.bants.ui
 
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.LocalIndication
 import android.content.ActivityNotFoundException
@@ -266,7 +269,7 @@ fun AudioBubble(m: Message, ink: Color, accent: Color) {
 // ───────────── video ─────────────
 
 @Composable
-fun VideoTile(m: Message, ink: Color, onOpen: () -> Unit) {
+fun VideoTile(m: Message, ink: Color, onOpen: () -> Unit, onLongPress: () -> Unit = {}) {
     val press = remember { MutableInteractionSource() }
     Box(
         Modifier
@@ -275,7 +278,7 @@ fun VideoTile(m: Message, ink: Color, onOpen: () -> Unit) {
             .pressScale(press, 0.04f)
             .clip(RoundedCornerShape(12.dp))
             .background(Color(0xFF17171C))
-            .clickable(interactionSource = press, indication = LocalIndication.current, onClick = onOpen),
+            .combinedClickable(interactionSource = press, indication = LocalIndication.current, onLongClick = onLongPress, onClick = onOpen),
         contentAlignment = Alignment.Center,
     ) {
         Box(
@@ -332,7 +335,7 @@ fun VideoDialog(m: Message, onDismiss: () -> Unit) {
 // ───────────── files ─────────────
 
 @Composable
-fun FileTile(m: Message, ink: Color) {
+fun FileTile(m: Message, ink: Color, onLongPress: () -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var loading by remember { mutableStateOf(false) }
@@ -347,7 +350,7 @@ fun FileTile(m: Message, ink: Color) {
             .pressScale(press, 0.04f)
             .clip(RoundedCornerShape(10.dp))
             .background(ink.copy(alpha = 0.1f))
-            .clickable(interactionSource = press, indication = LocalIndication.current, enabled = !loading) {
+            .combinedClickable(interactionSource = press, indication = LocalIndication.current, enabled = !loading, onLongClick = onLongPress) {
                 scope.launch {
                     loading = true
                     try {

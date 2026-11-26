@@ -1,5 +1,8 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package com.wellsey.bants.ui
 
+import androidx.compose.foundation.combinedClickable
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -92,7 +95,7 @@ fun MessageText(m: Message, conv: Conversation, myId: Long, ink: Color) {
 }
 
 @Composable
-fun LinkPreviewCard(p: LinkPreview, mine: Boolean) {
+fun LinkPreviewCard(p: LinkPreview, mine: Boolean, onLongPress: () -> Unit = {}) {
     val context = LocalContext.current
     val b = LocalBants.current
     Column(
@@ -100,7 +103,7 @@ fun LinkPreviewCard(p: LinkPreview, mine: Boolean) {
             .padding(top = 6.dp, bottom = 2.dp)
             .widthIn(max = 270.dp)
             .chunky(RoundedCornerShape(12.dp), b.card, b.outline, shadow = 0.dp, border = 2.dp)
-            .clickable { openUrl(context, p.url) },
+            .combinedClickable(onLongClick = onLongPress) { openUrl(context, p.url) },
     ) {
         if (p.image != null) {
             AsyncImage(
