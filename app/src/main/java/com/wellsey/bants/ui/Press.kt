@@ -38,7 +38,9 @@ fun rememberPress(interaction: InteractionSource, buzz: Boolean = true): State<F
         interaction.interactions.collect { i ->
             when (i) {
                 is PressInteraction.Press -> down = launch {
-                    if (buzz) Haptics.tap() anim.animateTo(1f, tween(70, easing = FastOutSlowInEasing)) }
+                    if (buzz) Haptics.tap()
+                    anim.animateTo(1f, tween(70, easing = FastOutSlowInEasing))
+                }
                 is PressInteraction.Release, is PressInteraction.Cancel -> {
                     val pushing = down
                     launch {
