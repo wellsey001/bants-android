@@ -128,7 +128,7 @@ fun ChatInfoScreen(convId: Long, nav: Navigator) {
                     Box(
                         Modifier
                             .clip(CircleShape)
-                            .clickable(enabled = conv.isGroup && iAmAdmin) {
+                            .bouncyClickable(enabled = conv.isGroup && iAmAdmin, squash = 0.08f) {
                                 photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                             },
                         contentAlignment = Alignment.Center,
@@ -179,7 +179,7 @@ fun ChatInfoScreen(convId: Long, nav: Navigator) {
                         Text(disappearLabel(conv.disappearAfter) + if (!canChange) " · only admins can change this" else "")
                     },
                     leadingContent = { Icon(Icons.Default.Timer, contentDescription = null) },
-                    modifier = if (canChange) Modifier.clickable { pickingTimer = true } else Modifier,
+                    modifier = if (canChange) Modifier.bouncyClickable(squash = 0.03f) { pickingTimer = true } else Modifier,
                 )
             }
 
@@ -242,7 +242,7 @@ fun ChatInfoScreen(convId: Long, nav: Navigator) {
                     Text("New messages vanish for everyone after this long.", color = LocalBants.current.muted, modifier = Modifier.padding(bottom = 8.dp))
                     listOf(0L, 86_400L, 604_800L, 7_776_000L).forEach { secs ->
                         Row(
-                            Modifier.fillMaxWidth().clickable {
+                            Modifier.fillMaxWidth().bouncyClickable(squash = 0.03f) {
                                 pickingTimer = false
                                 act { Bants.setDisappearing(convId, secs) }
                             }.padding(vertical = 4.dp),

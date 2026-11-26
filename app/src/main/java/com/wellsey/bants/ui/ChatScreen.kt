@@ -9,6 +9,8 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -314,7 +316,7 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
                 ChunkyIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", { nav.back() }, fill = Color.White, tint = BantsInk, size = 42.dp)
                 Spacer(Modifier.width(10.dp))
                 Row(
-                    Modifier.weight(1f).clickable { nav.go(Screen.ChatInfo(convId)) },
+                    Modifier.weight(1f).bouncyClickable(squash = 0.04f) { nav.go(Screen.ChatInfo(convId)) },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Avatar(title, conv.avatarMedia(myId), size = 42.dp, online = peer?.online == true, group = conv.isGroup)
@@ -382,8 +384,7 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
                             suggestions.forEach { u ->
                                 Row(
                                     Modifier
-                                        .chunky(RoundedCornerShape(50), LocalBants.current.card, LocalBants.current.outline, shadow = 0.dp, border = 2.dp)
-                                        .clickable {
+                                        .chunkyClickable(RoundedCornerShape(50), LocalBants.current.card, LocalBants.current.outline, shadow = 0.dp, border = 2.dp) {
                                             val cursor = field.selection.end.coerceIn(0, text.length)
                                             val start = cursor - (mentionQuery?.length ?: 0)
                                             val insert = u.username + " "
@@ -690,6 +691,7 @@ private fun MessageBubble(
             .padding(vertical = 2.dp),
         horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
     ) {
+        val bubblePress = remember { MutableInteractionSource() }
         Box(Modifier.offset { IntOffset(shownX.roundToInt(), 0) }) {
             if (shownX > 20f) {
                 Icon(
@@ -715,7 +717,10 @@ private fun MessageBubble(
                             dragX = 0f
                         },
                     )
+                    .pressScale(bubblePress, 0.035f)
                     .combinedClickable(
+                        interactionSource = bubblePress,
+                        indication = LocalIndication.current,
                         onClick = { if (m.failed) onRetry() },
                         onLongClick = { if (!m.deleted && !m.pending) menu = true },
                     ),
@@ -729,8 +734,7 @@ private fun MessageBubble(
                         Box(
                             Modifier
                                 .padding(top = 2.dp, bottom = 5.dp)
-                                .chunky(RoundedCornerShape(10.dp), BantsYellow, BantsInk, shadow = 0.dp, border = 2.dp)
-                                .clickable(onClick = onQuote),
+                                .chunkyClickable(RoundedCornerShape(10.dp), BantsYellow, BantsInk, shadow = 0.dp, border = 2.dp, onClick = onQuote),
                         ) {
                             Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
                                 Text(quotedName ?: "Reply", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, color = BantsInk)
@@ -758,7 +762,7 @@ private fun MessageBubble(
                                         .padding(top = 2.dp, bottom = 4.dp)
                                         .size(240.dp)
                                         .clip(RoundedCornerShape(12.dp))
-                                        .clickable { onImage(imageModel) },
+                                        .bouncyClickable(squash = 0.04f) { onImage(imageModel) },
                                 )
                             }
                             "sticker" -> AsyncImage(
@@ -801,7 +805,7 @@ private fun MessageBubble(
                                     .size(42.dp)
                                     .clip(CircleShape)
                                     .background(if (emoji == myReaction) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-                                    .clickable {
+                                    .bouncyClickable(squash = 0.25f) {
                                         menu = false
                                         onReact(emoji)
                                     },
@@ -862,8 +866,7 @@ private fun MessageBubble(
                     val reactedByMe = myId in r.userIds
                     Box(
                         Modifier
-                            .chunky(RoundedCornerShape(50), if (reactedByMe) BantsYellow else b.card, b.outline, shadow = 0.dp, border = 2.dp)
-                            .clickable { onReact(r.emoji) },
+                            .chunkyClickable(RoundedCornerShape(50), if (reactedByMe) BantsYellow else b.card, b.outline, shadow = 0.dp, border = 2.dp) { onReact(r.emoji) },
                     ) {
                         Text(
                             if (r.userIds.size > 1) "${r.emoji} ${r.userIds.size}" else r.emoji,

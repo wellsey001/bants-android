@@ -88,7 +88,7 @@ fun ProfileScreen(nav: Navigator) {
                 contentAlignment = Alignment.Center,
             ) {
                 Box(
-                    Modifier.clip(CircleShape).clickable {
+                    Modifier.clip(CircleShape).bouncyClickable(squash = 0.08f) {
                         picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     },
                     contentAlignment = Alignment.Center,

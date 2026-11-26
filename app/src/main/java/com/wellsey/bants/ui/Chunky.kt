@@ -53,11 +53,14 @@ fun Modifier.chunky(
     outline: Color,
     shadow: Dp = 4.dp,
     border: Dp = 2.5.dp,
+    press: (() -> Float)? = null,
 ): Modifier = this
     .drawBehind {
         if (shadow > 0.dp) {
             val o = shape.createOutline(size, layoutDirection, this)
-            translate(shadow.toPx(), shadow.toPx()) { drawOutline(o, outline) }
+            // While pressed the face slides onto its shadow, so the shadow's offset shrinks to match.
+            val d = shadow.toPx() * (1f - (press?.invoke() ?: 0f))
+            if (d > 0.5f) translate(d, d) { drawOutline(o, outline) }
         }
     }
     .clip(shape)
@@ -80,8 +83,7 @@ fun ChunkyButton(
     Row(
         modifier
             .defaultMinSize(minHeight = 52.dp)
-            .chunky(shape, if (enabled) fill else b.card, b.outline, shadow = if (enabled) 4.dp else 0.dp)
-            .clickable(enabled = enabled && !busy, role = Role.Button, onClick = onClick)
+            .chunkyClickable(shape, if (enabled) fill else b.card, b.outline, shadow = if (enabled) 4.dp else 0.dp, enabled = enabled && !busy, onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
@@ -114,8 +116,7 @@ fun ChunkyIconButton(
     Box(
         modifier
             .size(size)
-            .chunky(RoundedCornerShape(14.dp), fill, LocalBants.current.outline, shadow = shadow)
-            .clickable(enabled = enabled, role = Role.Button, onClickLabel = description, onClick = onClick),
+            .chunkyClickable(RoundedCornerShape(14.dp), fill, LocalBants.current.outline, shadow = shadow, enabled = enabled, onClickLabel = description, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription = description, tint = tint, modifier = Modifier.size(size * 0.5f))
@@ -127,8 +128,7 @@ fun ChunkyChip(text: String, selected: Boolean, onClick: () -> Unit) {
     val b = LocalBants.current
     Box(
         Modifier
-            .chunky(RoundedCornerShape(50), if (selected) BantsYellow else b.card, b.outline, shadow = 0.dp, border = 2.dp)
-            .clickable(role = Role.Tab, onClick = onClick)
+            .chunkyClickable(RoundedCornerShape(50), if (selected) BantsYellow else b.card, b.outline, shadow = 0.dp, border = 2.dp, role = Role.Tab, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 7.dp),
     ) {
         Text(text, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = if (selected) BantsInk else b.onCard)

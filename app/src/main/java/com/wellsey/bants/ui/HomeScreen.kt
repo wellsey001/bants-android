@@ -123,7 +123,7 @@ fun HomeScreen(nav: Navigator) {
                         }
                     }
                     Spacer(Modifier.width(10.dp))
-                    Box(Modifier.clickable(role = Role.Button, onClickLabel = "Your profile") { nav.go(Screen.Profile) }) {
+                    Box(Modifier.bouncyClickable(onClickLabel = "Your profile", squash = 0.1f) { nav.go(Screen.Profile) }) {
                         Avatar(me?.displayName ?: "?", me?.avatar, size = 44.dp)
                     }
                 }
@@ -141,7 +141,7 @@ fun HomeScreen(nav: Navigator) {
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .clickable(role = Role.Button) { nav.go(Screen.Archived) }
+                        .bouncyClickable(squash = 0.03f) { nav.go(Screen.Archived) }
                         .padding(horizontal = 22.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -220,8 +220,7 @@ fun ConversationCard(c: Conversation, myId: Long, someoneTyping: Boolean, onClic
     Row(
         Modifier
             .fillMaxWidth()
-            .chunky(RoundedCornerShape(18.dp), if (unread) b.unreadCard else b.card, b.outline)
-            .combinedClickable(role = Role.Button, onClick = onClick, onLongClick = { menu = true }, onLongClickLabel = "Chat options")
+            .chunkyClickable(RoundedCornerShape(18.dp), if (unread) b.unreadCard else b.card, b.outline, onLongClick = { menu = true }, onLongClickLabel = "Chat options", onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

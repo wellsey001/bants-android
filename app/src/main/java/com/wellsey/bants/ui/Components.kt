@@ -132,7 +132,7 @@ fun UserRow(
         },
         leadingContent = { Avatar(user.displayName, user.avatar, size = 44.dp, online = user.online == true) },
         trailingContent = trailing,
-        modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier,
+        modifier = if (onClick != null) Modifier.bouncyClickable(squash = 0.03f, onClick = onClick) else Modifier,
     )
 }
 
@@ -151,7 +151,7 @@ fun ActionRow(icon: ImageVector, title: String, subtitle: String? = null, onClic
                 Icon(icon, contentDescription = null, tint = Color.White)
             }
         },
-        modifier = Modifier.clickable(onClick = onClick),
+        modifier = Modifier.bouncyClickable(squash = 0.03f, onClick = onClick),
     )
 }
 

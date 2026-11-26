@@ -1,5 +1,7 @@
 package com.wellsey.bants.ui
 
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.LocalIndication
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -265,13 +267,15 @@ fun AudioBubble(m: Message, ink: Color, accent: Color) {
 
 @Composable
 fun VideoTile(m: Message, ink: Color, onOpen: () -> Unit) {
+    val press = remember { MutableInteractionSource() }
     Box(
         Modifier
             .padding(top = 2.dp, bottom = 4.dp)
             .size(width = 240.dp, height = 150.dp)
+            .pressScale(press, 0.04f)
             .clip(RoundedCornerShape(12.dp))
             .background(Color(0xFF17171C))
-            .clickable(onClick = onOpen),
+            .clickable(interactionSource = press, indication = LocalIndication.current, onClick = onOpen),
         contentAlignment = Alignment.Center,
     ) {
         Box(
@@ -335,13 +339,15 @@ fun FileTile(m: Message, ink: Color) {
     val info = m.mediaInfo
     val name = info?.filename?.takeIf { it.isNotBlank() } ?: "File"
 
+    val press = remember { MutableInteractionSource() }
     Row(
         Modifier
             .widthIn(min = 200.dp, max = 260.dp)
             .padding(top = 2.dp, bottom = 4.dp)
+            .pressScale(press, 0.04f)
             .clip(RoundedCornerShape(10.dp))
             .background(ink.copy(alpha = 0.1f))
-            .clickable(enabled = !loading) {
+            .clickable(interactionSource = press, indication = LocalIndication.current, enabled = !loading) {
                 scope.launch {
                     loading = true
                     try {

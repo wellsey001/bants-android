@@ -145,8 +145,7 @@ fun SearchScreen(nav: Navigator) {
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .chunky(RoundedCornerShape(16.dp), b.card, b.outline, shadow = 3.dp)
-                                .clickable(role = Role.Button) { nav.go(Screen.Chat(m.conversationId, jumpTo = m.id)) }
+                                .chunkyClickable(RoundedCornerShape(16.dp), b.card, b.outline, shadow = 3.dp) { nav.go(Screen.Chat(m.conversationId, jumpTo = m.id)) }
                                 .padding(12.dp),
                             verticalAlignment = Alignment.Top,
                         ) {
