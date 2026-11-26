@@ -35,6 +35,22 @@ class PushService : FirebaseMessagingService() {
         val convId = data["conversationId"]?.toLongOrNull()
         val mentioned = data["mentioned"] == "1"
         if (convId != null && Bants.conversations.value[convId]?.muted == true && !mentioned) return
+        if (data["type"] == "message" && data["body"] == null && convId != null) {
+            // Private push: fetch the message from our own server, then show it.
+            val messageId = data["messageId"]?.toLongOrNull()
+            val fetched = messageId?.let {
+                kotlinx.coroutines.runBlocking { kotlinx.coroutines.withTimeoutOrNull(8_000) { Bants.fetchForNotification(convId, it) } }
+            }
+            if (fetched != null) {
+                val (conv, m) = fetched
+                val sender = conv.members.firstOrNull { it.user.id == m.senderId }?.user
+                Notifications.showMessage(applicationContext, conv, m, sender, Bants.myId)
+            } else {
+                Notifications.showPush(applicationContext, data) // falls back to "New message"
+            }
+            Bants.onPushMessage()
+            return
+        }
         Notifications.showPush(applicationContext, data)
         if (data["type"] == "message") Bants.onPushMessage()
     }

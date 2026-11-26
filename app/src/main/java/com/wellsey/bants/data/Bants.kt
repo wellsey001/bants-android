@@ -361,6 +361,21 @@ object Bants {
         conversations.update { it + (c.id to c) }
     }
 
+    /**
+     * Pushes only carry ids (so Google never sees message text). This fetches the actual
+     * message, and the chat if we don't have it, from our own server for the notification.
+     */
+    suspend fun fetchForNotification(convId: Long, messageId: Long): Pair<Conversation, Message>? = runCatching {
+        if (me.value == null) runCatching { me.value = api.get<User>("/api/me") }
+        val conv = conversations.value[convId] ?: api.get<Conversation>("/api/conversations/$convId").also { c ->
+            conversations.update { it + (c.id to c) }
+        }
+        val page = api.get<MessagesPage>("/api/conversations/$convId/messages?after=${messageId - 1}&limit=5")
+        val m = page.messages.firstOrNull { it.id == messageId } ?: return@runCatching null
+        putMessages(convId, page.messages)
+        conv to m
+    }.getOrNull()
+
     suspend fun refreshContacts() {
         contacts.value = call { api.get<List<User>>("/api/contacts") }
     }

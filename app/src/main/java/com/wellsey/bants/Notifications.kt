@@ -114,7 +114,7 @@ object Notifications {
                     "video" -> "🎥 Video"
                     "audio" -> "🎤 Voice note"
                     "file" -> "📎 File"
-                    else -> data["body"].orEmpty()
+                    else -> data["body"].orEmpty().ifBlank { "New message" }
                 }
                 if (data["conversationType"] == "group") {
                     title = data["conversationName"].orEmpty().ifBlank { "Group" }

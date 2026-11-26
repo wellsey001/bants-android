@@ -7,7 +7,8 @@ class Session(context: Context) {
     private val prefs = context.getSharedPreferences("bants", Context.MODE_PRIVATE)
 
     var serverUrl: String
-        get() = prefs.getString("server", null) ?: DEFAULT_SERVER
+        // normalise() also upgrades any old http:// address to https://.
+        get() = normalise(prefs.getString("server", null) ?: DEFAULT_SERVER)
         set(value) = prefs.edit().putString("server", normalise(value)).apply()
 
     var token: String?
@@ -67,11 +68,25 @@ class Session(context: Context) {
     companion object {
         const val DEFAULT_SERVER = "https://bants.kanji-avalanche.xyz"
 
+        /**
+         * Tidies a server address and insists on HTTPS, so messages and passwords are always
+         * encrypted on their way. Plain http:// is only allowed for servers on your home
+         * network (handy for testing), never over the internet.
+         */
         fun normalise(input: String): String {
             var s = input.trim().trimEnd('/')
             if (s.isEmpty()) return DEFAULT_SERVER
             if (!s.startsWith("http://") && !s.startsWith("https://")) s = "https://$s"
+            if (s.startsWith("http://") && !isLocal(s.removePrefix("http://"))) s = "https://" + s.removePrefix("http://")
             return s
+        }
+
+        private fun isLocal(hostAndRest: String): Boolean {
+            val host = hostAndRest.substringBefore('/').substringBefore(':').lowercase()
+            if (host == "localhost" || host.endsWith(".local") || host.endsWith(".lan")) return true
+            val p = host.split('.').mapNotNull { it.toIntOrNull() }
+            if (p.size != 4) return false
+            return p[0] == 10 || p[0] == 127 || (p[0] == 192 && p[1] == 168) || (p[0] == 172 && p[1] in 16..31)
         }
     }
 }
