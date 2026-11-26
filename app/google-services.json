@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "592652403243",
+    "project_id": "bants-d63d4",
+    "storage_bucket": "bants-d63d4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:592652403243:android:a21ae15534a7c67793a06e",
+        "android_client_info": {
+          "package_name": "com.wellsey.bants"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCwOlEXpjTGxN_wYsas8uLAhNrXuxlU-P4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
