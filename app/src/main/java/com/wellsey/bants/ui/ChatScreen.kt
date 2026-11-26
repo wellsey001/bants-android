@@ -271,7 +271,11 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
         val video = pendingCallVideo
         pendingCallVideo = null
         val p = conversations[convId]?.peer(myId)
-        if (video != null && p != null && result.values.all { it }) CallManager.startCall(convId, p.id, p.displayName, p.avatar, video)
+        val c = conversations[convId]
+        if (video != null && c != null && result.values.all { it }) {
+            if (c.isGroup) CallManager.startCall(convId, 0, c.title(myId), c.avatar, video, group = true)
+            else if (p != null) CallManager.startCall(convId, p.id, p.displayName, p.avatar, video)
+        }
         else if (video != null) toast(context, "Bants needs the microphone (and camera for video) to call")
     }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -321,10 +325,14 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
     }
 
     fun startCall(video: Boolean) {
-        val p = peer ?: return
         val need = mutableListOf(Manifest.permission.RECORD_AUDIO)
         if (video) need += Manifest.permission.CAMERA
         if (need.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) {
+            if (conv.isGroup) {
+                CallManager.startCall(convId, 0, title, conv.avatar, video, group = true)
+                return
+            }
+            val p = peer ?: return
             CallManager.startCall(convId, p.id, p.displayName, p.avatar, video)
         } else {
             pendingCallVideo = video
@@ -373,7 +381,7 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
                         }
                     }
                 }
-                if (peer != null) {
+                if (peer != null || conv.isGroup) {
                     ChunkyIconButton(Icons.Default.Call, "Voice call", { startCall(false) }, fill = Color.White, tint = BantsInk, size = 42.dp)
                     Spacer(Modifier.width(8.dp))
                     ChunkyIconButton(Icons.Default.Videocam, "Video call", { startCall(true) }, fill = Color.White, tint = BantsInk, size = 42.dp)

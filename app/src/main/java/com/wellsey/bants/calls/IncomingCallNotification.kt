@@ -56,7 +56,10 @@ object IncomingCallNotification {
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(0xFF5B4BFF.toInt())
             .setContentTitle(call.peerName)
-            .setContentText(if (call.video) "Incoming video call" else "Incoming voice call")
+            .setContentText(
+                if (call.group) "${call.callerName ?: "Someone"} · group ${if (call.video) "video" else "voice"} call"
+                else if (call.video) "Incoming video call" else "Incoming voice call",
+            )
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setOngoing(true)

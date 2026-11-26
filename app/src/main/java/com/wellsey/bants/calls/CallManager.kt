@@ -47,10 +47,14 @@ import kotlin.coroutines.resume
 
 enum class CallStatus { Calling, Ringing, Incoming, Connecting, Active, Ended }
 
+/** Someone else on the call. */
+data class CallPerson(val id: Long, val name: String, val avatar: String?)
+
 data class CallUi(
     val callId: String?,
     val conversationId: Long,
     val peerId: Long,
+    /** The other person, or the group's name for group calls. */
     val peerName: String,
     val peerAvatar: String?,
     val video: Boolean,
@@ -63,6 +67,11 @@ data class CallUi(
     val frontCamera: Boolean = true,
     val endedText: String? = null,
     val reconnecting: Boolean = false,
+    val group: Boolean = false,
+    /** Who started a group call (shown while it rings). */
+    val callerName: String? = null,
+    /** Everyone else in a group call right now. */
+    val participants: List<CallPerson> = emptyList(),
 )
 
 @Serializable
@@ -72,28 +81,43 @@ private data class IceServerDto(val urls: List<String>, val username: String? = 
 private data class IceConfig(val iceServers: List<IceServerDto> = emptyList(), val relay: Boolean = false)
 
 /**
- * Runs one call at a time: ringing, answering, the WebRTC connection, and the local
+ * Runs one call at a time: ringing, answering, the WebRTC connections, and the local
  * camera/microphone. Signalling goes over the Bants WebSocket.
+ *
+ * A 1:1 call has one connection. A group call has one connection to each other person
+ * (a "mesh"); whoever joins last sends the offers, so two phones never both offer.
  */
 object CallManager {
     val state = MutableStateFlow<CallUi?>(null)
     val localVideo = MutableStateFlow<VideoTrack?>(null)
+    /** 1:1 calls: the other person's video. */
     val remoteVideo = MutableStateFlow<VideoTrack?>(null)
+    /** Group calls: everyone's video, by user id. */
+    val remoteVideos = MutableStateFlow<Map<Long, VideoTrack>>(emptyMap())
 
     private lateinit var appContext: Context
     val egl: EglBase by lazy { EglBase.create() }
     private var factory: PeerConnectionFactory? = null
-    private var pc: PeerConnection? = null
     private var audioSource: AudioSource? = null
     private var audioTrack: AudioTrack? = null
     private var videoSource: VideoSource? = null
     private var capturer: CameraVideoCapturer? = null
     private var textureHelper: SurfaceTextureHelper? = null
-    private val pendingCandidates = mutableListOf<IceCandidate>()
-    private val pendingSignals = mutableListOf<JsonObject>()
-    private var remoteDescriptionSet = false
-    private var disconnectJob: Job? = null
+    private var iceCache: List<PeerConnection.IceServer>? = null
     private val scope get() = Bants.scope
+
+    /** One WebRTC connection to one other person. */
+    private class Peer(val userId: Long) {
+        var pc: PeerConnection? = null
+        val pendingCandidates = mutableListOf<IceCandidate>()
+        val pendingSignals = mutableListOf<JsonObject>()
+        var remoteSet = false
+        var connected = false
+        var disconnectJob: Job? = null
+        var creating = false
+    }
+
+    private val peers = java.util.concurrent.ConcurrentHashMap<Long, Peer>()
 
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -103,15 +127,15 @@ object CallManager {
 
     // ───────────── starting and answering ─────────────
 
-    fun startCall(conversationId: Long, peerId: Long, peerName: String, peerAvatar: String?, video: Boolean) {
+    fun startCall(conversationId: Long, peerId: Long, peerName: String, peerAvatar: String?, video: Boolean, group: Boolean = false) {
         if (inCall) {
             Bants.notices.tryEmit("You're already on a call")
             return
         }
-        state.value = CallUi(null, conversationId, peerId, peerName, peerAvatar, video, incoming = false, status = CallStatus.Calling, speaker = video)
+        state.value = CallUi(null, conversationId, peerId, peerName, peerAvatar, video, incoming = false, status = CallStatus.Calling, speaker = video || group, group = group)
         openCallScreen()
         CallService.start(appContext, video)
-        setUpAudio(video)
+        setUpAudio(video || group)
         startLocalMedia(video)
         val sent = Bants.realtime.send(buildJsonObject {
             put("type", "call.start")
@@ -123,10 +147,17 @@ object CallManager {
     }
 
     /** A call arrived over the live connection or a push. */
-    fun onIncoming(callId: String, conversationId: Long, callerId: Long, callerName: String, callerAvatar: String?, video: Boolean) {
+    fun onIncoming(
+        callId: String, conversationId: Long, callerId: Long, callerName: String, callerAvatar: String?, video: Boolean,
+        group: Boolean = false, groupName: String? = null,
+    ) {
         val current = state.value
         if (current != null && current.status != CallStatus.Ended) return // already busy; the server handles that
-        state.value = CallUi(callId, conversationId, callerId, callerName, callerAvatar, video, incoming = true, status = CallStatus.Incoming, speaker = video)
+        state.value = if (group) {
+            CallUi(callId, conversationId, 0, groupName ?: "Group call", null, video, incoming = true, status = CallStatus.Incoming, speaker = true, group = true, callerName = callerName)
+        } else {
+            CallUi(callId, conversationId, callerId, callerName, callerAvatar, video, incoming = true, status = CallStatus.Incoming, speaker = video)
+        }
         Ringer.startRinging(appContext, video)
         if (Bants.inForeground) openCallScreen() else IncomingCallNotification.show(appContext, state.value!!)
     }
@@ -143,6 +174,8 @@ object CallManager {
             callerName = data["callerName"].orEmpty().ifBlank { "Someone" },
             callerAvatar = null,
             video = data["video"] == "1",
+            group = data["group"] == "1",
+            groupName = data["groupName"],
         )
         scope.launch {
             val stillRinging = runCatching { Bants.api.get<JsonObject>("/api/calls/$callId") }.isSuccess
@@ -158,7 +191,7 @@ object CallManager {
         IncomingCallNotification.cancel(appContext)
         state.value = s.copy(status = CallStatus.Connecting)
         CallService.start(appContext, s.video)
-        setUpAudio(s.video)
+        setUpAudio(s.video || s.group)
         startLocalMedia(s.video)
         scope.launch {
             // If we were woken by a push, wait for the live connection first.
@@ -166,7 +199,8 @@ object CallManager {
                 Bants.realtime.reconnectNow()
                 withTimeoutOrNull(10_000) { Bants.connected.first { it } }
             }
-            createPeer()
+            // 1:1: get ready for the caller's offer. Group: we'll offer to everyone once we've joined.
+            if (!s.group) createPeer(s.peerId)
             val sent = Bants.realtime.send(buildJsonObject {
                 put("type", "call.accept")
                 put("callId", s.callId)
@@ -228,6 +262,11 @@ object CallManager {
 
     // ───────────── events from the server ─────────────
 
+    private fun person(o: JsonObject?): CallPerson? {
+        val id = o?.get("id")?.jsonPrimitive?.longOrNull ?: return null
+        return CallPerson(id, o["displayName"]?.jsonPrimitive?.contentOrNull ?: "Someone", o["avatar"]?.jsonPrimitive?.contentOrNull)
+    }
+
     fun onEvent(type: String, ev: JsonObject) {
         val s = state.value
         val callId = ev["callId"]?.jsonPrimitive?.contentOrNull
@@ -248,6 +287,8 @@ object CallManager {
                     callerName = caller?.get("displayName")?.jsonPrimitive?.contentOrNull ?: "Someone",
                     callerAvatar = caller?.get("avatar")?.jsonPrimitive?.contentOrNull,
                     video = call["video"]?.jsonPrimitive?.booleanOrNull ?: false,
+                    group = call["group"]?.jsonPrimitive?.booleanOrNull ?: false,
+                    groupName = ev["groupName"]?.jsonPrimitive?.contentOrNull,
                 )
             }
             "call.accepted" -> {
@@ -255,15 +296,62 @@ object CallManager {
                 Ringer.stop()
                 state.value = s.copy(status = CallStatus.Connecting)
                 scope.launch {
-                    createPeer()
-                    makeOffer()
+                    createPeer(s.peerId)
+                    makeOffer(s.peerId)
                 }
             }
-            "call.joined" -> Unit
+            "call.joined" -> {
+                // Group: we're in. Connect to everyone already there (we send the offers).
+                if (s == null || !s.group) return
+                val others = (ev["participants"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { person(it as? JsonObject) }.orEmpty()
+                val call = ev["call"]?.jsonObject
+                val video = call?.get("video")?.jsonPrimitive?.booleanOrNull ?: s.video
+                state.value = s.copy(
+                    callId = callId,
+                    group = true,
+                    video = video,
+                    participants = others,
+                    peerName = ev["groupName"]?.jsonPrimitive?.contentOrNull ?: s.peerName,
+                    status = if (others.isEmpty()) CallStatus.Ringing else CallStatus.Connecting,
+                )
+                if (others.isNotEmpty()) Ringer.stop()
+                others.forEach { p ->
+                    scope.launch {
+                        createPeer(p.id)
+                        makeOffer(p.id)
+                    }
+                }
+            }
+            "call.participant.joined" -> {
+                if (s == null || s.callId != callId) return
+                val p = person(ev["user"]?.jsonObject) ?: return
+                Ringer.stop()
+                state.value = s.copy(
+                    participants = s.participants.filter { it.id != p.id } + p,
+                    status = if (s.status == CallStatus.Active) CallStatus.Active else CallStatus.Connecting,
+                )
+                // They'll send us an offer; have a connection ready for it.
+                scope.launch { createPeer(p.id) }
+            }
+            "call.participant.left" -> {
+                if (s == null || s.callId != callId) return
+                val id = ev["userId"]?.jsonPrimitive?.longOrNull ?: return
+                closePeer(id)
+                state.value = state.value?.let { cur -> cur.copy(participants = cur.participants.filter { it.id != id }) }
+            }
             "call.signal" -> {
                 if (s == null || s.callId != callId) return
                 val data = ev["data"]?.jsonObject ?: return
-                if (pc == null) pendingSignals += data else handleSignal(data)
+                val from = ev["from"]?.jsonPrimitive?.longOrNull ?: s.peerId
+                val peer = peers[from]
+                if (peer?.pc == null) {
+                    // Not ready yet (or a group joiner we haven't heard about): queue it and get ready.
+                    val p = peers.getOrPut(from) { Peer(from) }
+                    p.pendingSignals += data
+                    if (s.group) scope.launch { createPeer(from) }
+                } else {
+                    handleSignal(peer, data)
+                }
             }
             "call.ended" -> {
                 if (s == null || (s.callId != null && s.callId != callId)) return
@@ -278,7 +366,7 @@ object CallManager {
     }
 
     private fun endedText(reason: String?, s: CallUi) = when (reason) {
-        "declined" -> "${s.peerName} is busy"
+        "declined" -> if (s.group) "Nobody picked up" else "${s.peerName} is busy"
         "busy" -> "${s.peerName} is on another call"
         "missed" -> if (s.incoming) null else "No answer"
         "answered_elsewhere" -> null
@@ -324,6 +412,7 @@ object CallManager {
     }
 
     private suspend fun iceServers(): List<PeerConnection.IceServer> {
+        iceCache?.let { return it }
         val config = runCatching { Bants.api.get<IceConfig>("/api/calls/ice") }.getOrNull()
         val list = config?.iceServers ?: listOf(IceServerDto(listOf("stun:stun.l.google.com:19302")))
         return list.map { s ->
@@ -331,27 +420,31 @@ object CallManager {
             if (s.username != null) b.setUsername(s.username)
             if (s.credential != null) b.setPassword(s.credential)
             b.createIceServer()
-        }
+        }.also { if (config != null) iceCache = it }
     }
 
-    private suspend fun createPeer() {
-        if (pc != null) return
+    private suspend fun createPeer(userId: Long) {
+        val p = peers.getOrPut(userId) { Peer(userId) }
+        if (p.pc != null || p.creating) return
+        p.creating = true
         val servers = iceServers()
         val config = PeerConnection.RTCConfiguration(servers).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
         }
-        val peer = ensureFactory().createPeerConnection(config, observer) ?: run {
-            end("Couldn't start the call", notify = false)
+        val conn = ensureFactory().createPeerConnection(config, observerFor(p))
+        p.creating = false
+        if (conn == null) {
+            if (state.value?.group == true) closePeer(userId) else end("Couldn't start the call", notify = false)
             return
         }
-        audioTrack?.let { peer.addTrack(it, listOf("bants")) }
-        localVideo.value?.let { peer.addTrack(it, listOf("bants")) }
-        pc = peer
+        audioTrack?.let { conn.addTrack(it, listOf("bants")) }
+        localVideo.value?.let { conn.addTrack(it, listOf("bants")) }
+        p.pc = conn
         // Signals that arrived while we were setting up.
-        val queued = pendingSignals.toList()
-        pendingSignals.clear()
-        queued.forEach { handleSignal(it) }
+        val queued = p.pendingSignals.toList()
+        p.pendingSignals.clear()
+        queued.forEach { handleSignal(p, it) }
     }
 
     private fun constraints(): MediaConstraints {
@@ -362,34 +455,35 @@ object CallManager {
         }
     }
 
-    private suspend fun makeOffer() {
-        val peer = pc ?: return
-        val offer = peer.awaitCreate(true, constraints()) ?: return end("Couldn't start the call", notify = false)
-        peer.awaitSetLocal(offer)
-        sendSignal(buildJsonObject {
+    private suspend fun makeOffer(userId: Long) {
+        val conn = peers[userId]?.pc ?: return
+        val offer = conn.awaitCreate(true, constraints())
+            ?: return if (state.value?.group == true) closePeer(userId) else end("Couldn't start the call", notify = false)
+        conn.awaitSetLocal(offer)
+        sendSignal(userId, buildJsonObject {
             put("type", "offer")
             put("sdp", offer.description)
         })
     }
 
-    private fun handleSignal(data: JsonObject) {
-        val peer = pc ?: return
+    private fun handleSignal(p: Peer, data: JsonObject) {
+        val conn = p.pc ?: return
         when (data["type"]?.jsonPrimitive?.contentOrNull) {
             "offer" -> scope.launch {
                 val sdp = data["sdp"]?.jsonPrimitive?.contentOrNull ?: return@launch
-                peer.awaitSetRemote(SessionDescription(SessionDescription.Type.OFFER, sdp))
-                onRemoteDescription()
-                val answer = peer.awaitCreate(false, constraints()) ?: return@launch
-                peer.awaitSetLocal(answer)
-                sendSignal(buildJsonObject {
+                conn.awaitSetRemote(SessionDescription(SessionDescription.Type.OFFER, sdp))
+                onRemoteDescription(p)
+                val answer = conn.awaitCreate(false, constraints()) ?: return@launch
+                conn.awaitSetLocal(answer)
+                sendSignal(p.userId, buildJsonObject {
                     put("type", "answer")
                     put("sdp", answer.description)
                 })
             }
             "answer" -> scope.launch {
                 val sdp = data["sdp"]?.jsonPrimitive?.contentOrNull ?: return@launch
-                peer.awaitSetRemote(SessionDescription(SessionDescription.Type.ANSWER, sdp))
-                onRemoteDescription()
+                conn.awaitSetRemote(SessionDescription(SessionDescription.Type.ANSWER, sdp))
+                onRemoteDescription(p)
             }
             "candidate" -> {
                 val c = IceCandidate(
@@ -397,31 +491,45 @@ object CallManager {
                     data["sdpMLineIndex"]?.jsonPrimitive?.intOrNull ?: 0,
                     data["candidate"]?.jsonPrimitive?.contentOrNull ?: return,
                 )
-                if (remoteDescriptionSet) peer.addIceCandidate(c) else pendingCandidates += c
+                if (p.remoteSet) conn.addIceCandidate(c) else p.pendingCandidates += c
             }
         }
     }
 
-    private fun onRemoteDescription() {
-        remoteDescriptionSet = true
-        val peer = pc ?: return
-        pendingCandidates.forEach { peer.addIceCandidate(it) }
-        pendingCandidates.clear()
+    private fun onRemoteDescription(p: Peer) {
+        p.remoteSet = true
+        val conn = p.pc ?: return
+        p.pendingCandidates.forEach { conn.addIceCandidate(it) }
+        p.pendingCandidates.clear()
     }
 
-    private fun sendSignal(data: JsonObject) {
-        val id = state.value?.callId ?: return
+    private fun sendSignal(to: Long, data: JsonObject) {
+        val s = state.value ?: return
+        val id = s.callId ?: return
         Bants.realtime.send(buildJsonObject {
             put("type", "call.signal")
             put("callId", id)
+            if (s.group) put("to", to)
             put("data", data)
         })
     }
 
-    private val observer = object : PeerConnection.Observer {
+    /** Recomputes "connected / reconnecting" from all the connections. */
+    private fun refreshStatus() {
+        val s = state.value ?: return
+        if (s.status == CallStatus.Ended) return
+        val anyConnected = peers.values.any { it.connected }
+        state.value = when {
+            anyConnected -> s.copy(status = CallStatus.Active, answeredAt = s.answeredAt ?: System.currentTimeMillis(), reconnecting = false)
+            s.status == CallStatus.Active -> s.copy(reconnecting = true)
+            else -> s
+        }
+    }
+
+    private fun observerFor(p: Peer) = object : PeerConnection.Observer {
         override fun onIceCandidate(candidate: IceCandidate) {
             scope.launch {
-                sendSignal(buildJsonObject {
+                sendSignal(p.userId, buildJsonObject {
                     put("type", "candidate")
                     put("candidate", candidate.sdp)
                     put("sdpMid", candidate.sdpMid)
@@ -432,23 +540,33 @@ object CallManager {
 
         override fun onIceConnectionChange(newState: PeerConnection.IceConnectionState) {
             scope.launch {
-                val s = state.value ?: return@launch
+                val group = state.value?.group == true
                 when (newState) {
                     PeerConnection.IceConnectionState.CONNECTED, PeerConnection.IceConnectionState.COMPLETED -> {
-                        disconnectJob?.cancel()
-                        state.value = s.copy(status = CallStatus.Active, answeredAt = s.answeredAt ?: System.currentTimeMillis(), reconnecting = false)
+                        p.disconnectJob?.cancel()
+                        p.connected = true
+                        refreshStatus()
                     }
                     PeerConnection.IceConnectionState.DISCONNECTED -> {
-                        state.value = s.copy(reconnecting = true)
-                        disconnectJob?.cancel()
-                        disconnectJob = scope.launch {
+                        p.connected = false
+                        refreshStatus()
+                        p.disconnectJob?.cancel()
+                        p.disconnectJob = scope.launch {
                             delay(15_000)
-                            if (state.value?.reconnecting == true) hangUp()
+                            if (!p.connected) {
+                                if (group) closePeer(p.userId) else hangUp()
+                            }
                         }
                     }
                     PeerConnection.IceConnectionState.FAILED -> {
-                        hangUp()
-                        state.value = state.value?.copy(endedText = "Couldn't connect the call")
+                        p.connected = false
+                        if (group) {
+                            closePeer(p.userId)
+                            refreshStatus()
+                        } else {
+                            hangUp()
+                            state.value = state.value?.copy(endedText = "Couldn't connect the call")
+                        }
                     }
                     else -> Unit
                 }
@@ -457,7 +575,10 @@ object CallManager {
 
         override fun onTrack(transceiver: RtpTransceiver) {
             val track = transceiver.receiver.track()
-            if (track is VideoTrack) scope.launch { remoteVideo.value = track }
+            if (track is VideoTrack) scope.launch {
+                remoteVideos.value = remoteVideos.value + (p.userId to track)
+                if (state.value?.group != true) remoteVideo.value = track
+            }
         }
 
         override fun onSignalingChange(p0: PeerConnection.SignalingState) = Unit
@@ -470,13 +591,21 @@ object CallManager {
         override fun onRenegotiationNeeded() = Unit
     }
 
+    private fun closePeer(userId: Long) {
+        val p = peers.remove(userId) ?: return
+        p.disconnectJob?.cancel()
+        remoteVideos.value = remoteVideos.value - userId
+        runCatching { p.pc?.close() }
+        p.pc = null
+    }
+
     // ───────────── audio routing ─────────────
 
     @Suppress("DEPRECATION")
-    private fun setUpAudio(video: Boolean) {
+    private fun setUpAudio(speaker: Boolean) {
         val audio = appContext.getSystemService(AudioManager::class.java)
         audio.mode = AudioManager.MODE_IN_COMMUNICATION
-        audio.isSpeakerphoneOn = video
+        audio.isSpeakerphoneOn = speaker
     }
 
     @Suppress("DEPRECATION")
@@ -491,7 +620,6 @@ object CallManager {
     private fun end(text: String?, notify: Boolean) {
         Ringer.stop()
         IncomingCallNotification.cancel(appContext)
-        disconnectJob?.cancel()
         val s = state.value
         scope.launch(Dispatchers.Default) { releaseMedia() }
         resetAudio()
@@ -507,17 +635,16 @@ object CallManager {
     }
 
     private fun releaseMedia() {
-        runCatching { pc?.close() }
-        pc = null
-        remoteDescriptionSet = false
-        pendingCandidates.clear()
-        pendingSignals.clear()
+        peers.keys.toList().forEach { closePeer(it) }
+        peers.clear()
+        iceCache = null
         runCatching { capturer?.stopCapture() }
         capturer?.dispose()
         capturer = null
         localVideo.value?.dispose()
         localVideo.value = null
         remoteVideo.value = null
+        remoteVideos.value = emptyMap()
         videoSource?.dispose()
         videoSource = null
         textureHelper?.dispose()

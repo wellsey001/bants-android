@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -128,6 +129,7 @@ private fun CallScreen(answerNow: Boolean, onDone: () -> Unit, onProximity: (Boo
     val call by CallManager.state.collectAsState()
     val local by CallManager.localVideo.collectAsState()
     val remote by CallManager.remoteVideo.collectAsState()
+    val remotes by CallManager.remoteVideos.collectAsState()
     val context = LocalContext.current
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
@@ -160,24 +162,31 @@ private fun CallScreen(answerNow: Boolean, onDone: () -> Unit, onProximity: (Boo
     }
     BackHandler(enabled = c.status == CallStatus.Incoming) { /* decide first: answer or decline */ }
 
-    val showRemote = c.video && remote != null && c.status == CallStatus.Active
-    Box(Modifier.fillMaxSize().background(if (showRemote) Color.Black else BantsPurple)) {
+    val showGrid = c.group && c.participants.isNotEmpty() && c.status != CallStatus.Incoming && c.status != CallStatus.Ended
+    val showRemote = !c.group && c.video && remote != null && c.status == CallStatus.Active
+    Box(Modifier.fillMaxSize().background(if (showRemote || (showGrid && c.video)) Color.Black else BantsPurple)) {
         if (showRemote) VideoView(remote!!, mirror = false, modifier = Modifier.fillMaxSize())
+        if (showGrid) {
+            ParticipantGrid(
+                c.participants, remotes, c.video,
+                Modifier.fillMaxSize().statusBarsPadding().padding(top = 96.dp, bottom = 230.dp, start = 10.dp, end = 10.dp),
+            )
+        }
 
         Column(
             Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            if (!showRemote) {
+            if (!showRemote && !showGrid) {
                 Spacer(Modifier.height(48.dp))
-                Avatar(c.peerName, c.peerAvatar, size = 140.dp)
+                Avatar(c.peerName, c.peerAvatar, size = 140.dp, group = c.group)
                 Spacer(Modifier.height(18.dp))
             }
             Text(
                 c.peerName,
                 fontFamily = Bricolage,
                 fontWeight = FontWeight.ExtraBold,
-                fontSize = if (showRemote) 22.sp else 34.sp,
+                fontSize = if (showRemote || showGrid) 22.sp else 34.sp,
                 color = Color.White,
                 textAlign = TextAlign.Center,
             )
@@ -185,8 +194,11 @@ private fun CallScreen(answerNow: Boolean, onDone: () -> Unit, onProximity: (Boo
                 c.endedText != null -> c.endedText
                 c.reconnecting -> "Reconnecting…"
                 c.status == CallStatus.Calling -> "Calling…"
-                c.status == CallStatus.Ringing -> "Ringing…"
+                c.status == CallStatus.Ringing -> if (c.group) "Ringing the group…" else "Ringing…"
+                c.status == CallStatus.Incoming && c.group -> "${c.callerName ?: "Someone"} is calling the group"
                 c.status == CallStatus.Incoming -> if (c.video) "Incoming video call" else "Incoming voice call"
+                c.group && c.status == CallStatus.Active ->
+                    "${c.participants.size + 1} on the call · " + formatDuration(now - (c.answeredAt ?: now))
                 c.status == CallStatus.Connecting -> "Connecting…"
                 c.status == CallStatus.Active -> formatDuration(now - (c.answeredAt ?: now))
                 else -> "Call ended"
@@ -277,4 +289,42 @@ private fun VideoView(track: VideoTrack, mirror: Boolean, modifier: Modifier, ov
     }
     DisposableEffect(Unit) { onDispose { renderer.release() } }
     AndroidView(factory = { renderer }, update = { it.setMirror(mirror) }, modifier = modifier)
+}
+
+
+/** Everyone else in a group call: their video, or their face if there's no video. */
+@Composable
+private fun ParticipantGrid(people: List<CallPerson>, videos: Map<Long, VideoTrack>, video: Boolean, modifier: Modifier) {
+    val columns = if (people.size <= 1) 1 else 2
+    val rows = people.chunked(columns)
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        rows.forEach { row ->
+            Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { p ->
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .chunky(RoundedCornerShape(18.dp), if (video) Color.Black else Color.White.copy(alpha = 0.12f), BantsInk, shadow = 0.dp, border = 2.5.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        val track = videos[p.id]
+                        if (video && track != null) {
+                            VideoView(track, mirror = false, modifier = Modifier.fillMaxSize().padding(2.5.dp))
+                        } else {
+                            Avatar(p.name, p.avatar, size = if (people.size <= 2) 110.dp else 76.dp)
+                        }
+                        Text(
+                            p.name,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            modifier = Modifier.align(Alignment.BottomStart).padding(10.dp),
+                        )
+                    }
+                }
+                if (row.size < columns) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
 }

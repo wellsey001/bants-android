@@ -1089,7 +1089,8 @@ object Bants {
                         runCatching { refreshRequests() }
                     }
                 }
-                "call.started", "call.incoming", "call.accepted", "call.joined", "call.signal", "call.ended" ->
+                "call.started", "call.incoming", "call.accepted", "call.joined", "call.signal", "call.ended",
+                "call.participant.joined", "call.participant.left" ->
                     CallManager.onEvent(type, ev)
                 "error" -> if (ev.str("clientId") == "call") CallManager.onStartError(ev.str("error"))
                 "auth.lost" -> signOutLocal()
