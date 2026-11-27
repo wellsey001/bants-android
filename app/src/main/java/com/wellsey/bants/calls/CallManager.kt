@@ -72,6 +72,8 @@ data class CallUi(
     val callerName: String? = null,
     /** Everyone else in a group call right now. */
     val participants: List<CallPerson> = emptyList(),
+    /** Set when this "call" is a server voice channel you've dropped into. */
+    val voiceChannelId: Long? = null,
 )
 
 @Serializable
@@ -184,6 +186,61 @@ object CallManager {
         }
     }
 
+    // ───────────── voice channels ─────────────
+
+    /** Drop into a server voice channel. If you're already in one, you hop across. */
+    fun joinVoice(channelId: Long, name: String) {
+        val cur = state.value
+        if (cur != null && cur.status != CallStatus.Ended) {
+            if (cur.voiceChannelId == channelId) {
+                showCallScreen()
+                return
+            }
+            if (cur.voiceChannelId == null) {
+                Bants.notices.tryEmit("Hang up your call first")
+                return
+            }
+            // Leave the old channel, give the media a moment to shut down, then join the new one.
+            hangUp()
+            scope.launch {
+                delay(700)
+                joinVoice(channelId, name)
+            }
+            return
+        }
+        state.value = CallUi(
+            null, 0, 0, name, null, video = false, incoming = false, status = CallStatus.Connecting,
+            speaker = true, group = true, voiceChannelId = channelId,
+        )
+        CallService.start(appContext, false)
+        setUpAudio(true)
+        startLocalMedia(false)
+        scope.launch {
+            if (!Bants.connected.value) {
+                Bants.realtime.reconnectNow()
+                withTimeoutOrNull(10_000) { Bants.connected.first { it } }
+            }
+            val sent = Bants.realtime.send(buildJsonObject {
+                put("type", "voice.join")
+                put("channelId", channelId)
+                put("clientId", "call")
+            })
+            if (!sent) end("You're offline", notify = false)
+        }
+    }
+
+    /** Opens the full call screen (from the voice bar, or after joining). */
+    fun showCallScreen() = openCallScreen()
+
+    private fun sendVoiceState() {
+        val s = state.value ?: return
+        if (s.voiceChannelId == null || s.callId == null) return
+        Bants.realtime.send(buildJsonObject {
+            put("type", "voice.update")
+            put("muted", s.muted)
+        })
+    }
+
     fun accept() {
         val s = state.value ?: return
         if (s.status != CallStatus.Incoming) return
@@ -226,7 +283,7 @@ object CallManager {
                 put("callId", s.callId)
             })
         }
-        end(if (s.answeredAt != null) "Call ended" else null, notify = false)
+        end(if (s.voiceChannelId != null) "Left voice" else if (s.answeredAt != null) "Call ended" else null, notify = false)
     }
 
     // ───────────── controls ─────────────
@@ -235,6 +292,7 @@ object CallManager {
         val s = state.value ?: return
         audioTrack?.setEnabled(s.muted)
         state.value = s.copy(muted = !s.muted)
+        sendVoiceState()
     }
 
     @Suppress("DEPRECATION")
@@ -306,14 +364,22 @@ object CallManager {
                 val others = (ev["participants"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { person(it as? JsonObject) }.orEmpty()
                 val call = ev["call"]?.jsonObject
                 val video = call?.get("video")?.jsonPrimitive?.booleanOrNull ?: s.video
+                val voice = s.voiceChannelId != null
                 state.value = s.copy(
                     callId = callId,
                     group = true,
                     video = video,
                     participants = others,
                     peerName = ev["groupName"]?.jsonPrimitive?.contentOrNull ?: s.peerName,
-                    status = if (others.isEmpty()) CallStatus.Ringing else CallStatus.Connecting,
+                    // A voice channel with nobody else in it is still "connected": you're just early.
+                    status = when {
+                        voice && others.isEmpty() -> CallStatus.Active
+                        others.isEmpty() -> CallStatus.Ringing
+                        else -> CallStatus.Connecting
+                    },
+                    answeredAt = if (voice) (s.answeredAt ?: System.currentTimeMillis()) else s.answeredAt,
                 )
+                if (voice && s.muted) sendVoiceState()
                 if (others.isNotEmpty()) Ringer.stop()
                 others.forEach { p ->
                     scope.launch {
@@ -337,7 +403,12 @@ object CallManager {
                 if (s == null || s.callId != callId) return
                 val id = ev["userId"]?.jsonPrimitive?.longOrNull ?: return
                 closePeer(id)
-                state.value = state.value?.let { cur -> cur.copy(participants = cur.participants.filter { it.id != id }) }
+                state.value = state.value?.let { cur ->
+                    val left = cur.participants.filter { it.id != id }
+                    // Alone in a voice channel is fine, not "reconnecting".
+                    if (cur.voiceChannelId != null && left.isEmpty()) cur.copy(participants = left, reconnecting = false, status = CallStatus.Active)
+                    else cur.copy(participants = left)
+                }
             }
             "call.signal" -> {
                 if (s == null || s.callId != callId) return
@@ -362,10 +433,14 @@ object CallManager {
     }
 
     fun onStartError(message: String?) {
-        if (state.value?.status == CallStatus.Calling) end(message ?: "Couldn't start the call", notify = false)
+        val s = state.value
+        if (s?.status == CallStatus.Calling || (s?.voiceChannelId != null && s.callId == null)) end(message ?: "Couldn't start the call", notify = false)
     }
 
     private fun endedText(reason: String?, s: CallUi) = when (reason) {
+        "removed" -> "You were removed from the voice channel"
+        "channel_deleted" -> "The voice channel was deleted"
+        "empty" -> "Left voice"
         "declined" -> if (s.group) "Nobody picked up" else "${s.peerName} is busy"
         "busy" -> "${s.peerName} is on another call"
         "missed" -> if (s.incoming) null else "No answer"

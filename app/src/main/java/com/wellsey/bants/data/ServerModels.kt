@@ -38,7 +38,12 @@ data class ServerChannel(
     val archived: Boolean = false,
     val locked: Boolean = false,
     val starterMessageId: Long? = null,
+    /** Voice channels: who's in there right now. */
+    val voiceMembers: List<VoiceMember> = emptyList(),
 )
+
+@Serializable
+data class VoiceMember(val id: Long, val muted: Boolean = false, val deafened: Boolean = false, val video: Boolean = false)
 
 @Serializable
 data class ServerMe(

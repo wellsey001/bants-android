@@ -543,6 +543,11 @@ object Servers {
                     val t = decode<ServerChannel>(ev["thread"])
                     threads.update { it + (t.id to t) }
                 }
+                "voice.state" -> {
+                    val cid = ev.long("channelId")
+                    val list = (ev["members"] as? JsonArray)?.map { decode<VoiceMember>(it) }.orEmpty()
+                    updateChannel(cid) { it.copy(voiceMembers = list) }
+                }
                 "channel.thread.delete" -> {
                     val id = ev.long("threadId")
                     threads.update { it - id }

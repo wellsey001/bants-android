@@ -1,5 +1,17 @@
 package com.wellsey.bants.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.compose.material.icons.filled.CallEnd
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
+import com.wellsey.bants.calls.CallManager
+import com.wellsey.bants.calls.CallStatus
+import com.wellsey.bants.data.ServerMember
+import com.wellsey.bants.data.shownName
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -16,6 +28,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -195,6 +208,12 @@ fun ServersHomeScreen(nav: Navigator) {
                 }
             }
         }
+        VoiceBar(
+            Modifier
+                .align(Alignment.BottomStart)
+                .windowInsetsPadding(WindowInsets.navigationBars)
+                .padding(start = 12.dp, end = 100.dp, bottom = 22.dp),
+        )
         ChunkyIconButton(
             Icons.Default.Add,
             "Add a server",
@@ -302,6 +321,30 @@ fun ServerScreen(serverId: Long, nav: Navigator) {
     var editing by remember { mutableStateOf<ServerChannel?>(null) }
     var confirm by remember { mutableStateOf<String?>(null) }
     val collapsed = remember { mutableStateListOf<Long>() }
+    val allMembers by Servers.members.collectAsState()
+    var wantVoice by remember { mutableStateOf<ServerChannel?>(null) }
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        val c = wantVoice
+        wantVoice = null
+        if (ok && c != null) CallManager.joinVoice(c.id, voiceTitle(c, Servers.servers.value[c.serverId]))
+        else if (!ok) toast(context, "Bants needs the microphone for voice channels")
+    }
+    fun open(c: ServerChannel) {
+        if (c.type != "voice") {
+            nav.go(Screen.Channel(c.id))
+            return
+        }
+        if (!c.permissions.has(Perm.CONNECT)) {
+            toast(context, "You can't join this voice channel")
+            return
+        }
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            CallManager.joinVoice(c.id, voiceTitle(c, Servers.servers.value[c.serverId]))
+        } else {
+            wantVoice = c
+            micPermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
 
     LaunchedEffect(serverId) {
         runCatching { Servers.refreshServer(serverId) }.onFailure { if (Servers.servers.value[serverId] == null) nav.back() }
@@ -347,14 +390,14 @@ fun ServerScreen(serverId: Long, nav: Navigator) {
         val top = s.channels.filter { it.parentId == null && it.type != "category" }.sortedBy { it.position }
         val categories = s.channels.filter { it.type == "category" }.sortedBy { it.position }
         LazyColumn(
-            Modifier.fillMaxSize(),
+            Modifier.weight(1f),
             contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 40.dp),
         ) {
             if (s.description.isNotBlank()) {
                 item { Text(s.description, color = b.muted, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)) }
             }
             items(top, key = { it.id }) { c ->
-                ChannelRow(c, onLongClick = if (perms.has(Perm.MANAGE_CHANNELS)) ({ editing = c }) else null) { openChannel(c, nav, context) }
+                ChannelRow(c, allMembers[serverId].orEmpty(), onLongClick = if (perms.has(Perm.MANAGE_CHANNELS)) ({ editing = c }) else null) { open(c) }
             }
             categories.forEach { cat ->
                 val kids = s.channels.filter { it.parentId == cat.id }.sortedBy { it.position }
@@ -382,10 +425,11 @@ fun ServerScreen(serverId: Long, nav: Navigator) {
                     }
                 }
                 if (!shut) items(kids, key = { it.id }) { c ->
-                    ChannelRow(c, onLongClick = if (perms.has(Perm.MANAGE_CHANNELS)) ({ editing = c }) else null) { openChannel(c, nav, context) }
+                    ChannelRow(c, allMembers[serverId].orEmpty(), onLongClick = if (perms.has(Perm.MANAGE_CHANNELS)) ({ editing = c }) else null) { open(c) }
                 }
             }
         }
+        VoiceBar(Modifier.navigationBarsPadding().padding(12.dp))
     }
 
     if (inviting) InviteDialog(s) { inviting = false }
@@ -399,9 +443,35 @@ fun ServerScreen(serverId: Long, nav: Navigator) {
     }
 }
 
-private fun openChannel(c: ServerChannel, nav: Navigator, context: Context) {
-    if (c.type == "voice") toast(context, "Voice channels are coming in the next update")
-    else nav.go(Screen.Channel(c.id))
+private fun voiceTitle(c: ServerChannel, s: BantsServer?) = if (s != null) "${c.name} · ${s.name}" else c.name
+
+/** "You're in voice" strip with mute and leave, shown in the servers screens while you're in a voice channel. */
+@Composable
+fun VoiceBar(modifier: Modifier = Modifier) {
+    val call by CallManager.state.collectAsState()
+    val c = call ?: return
+    if (c.voiceChannelId == null || c.status == CallStatus.Ended) return
+    val b = LocalBants.current
+    Row(
+        modifier
+            .fillMaxWidth()
+            .chunkyClickable(RoundedCornerShape(16.dp), OnlineGreen, b.outline, shadow = 3.dp, onClickLabel = "Open voice") { CallManager.showCallScreen() }
+            .padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, tint = BantsInk, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                if (c.status == CallStatus.Active) "Voice connected" else "Connecting…",
+                fontFamily = Bricolage, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = BantsInk,
+            )
+            Text(c.peerName, fontSize = 13.sp, color = BantsInk, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        ChunkyIconButton(if (c.muted) Icons.Default.MicOff else Icons.Default.Mic, if (c.muted) "Unmute" else "Mute", { CallManager.toggleMute() }, size = 40.dp)
+        Spacer(Modifier.width(8.dp))
+        ChunkyIconButton(Icons.Default.CallEnd, "Leave voice", { CallManager.hangUp() }, fill = BantsPink, tint = BantsInk, size = 40.dp)
+    }
 }
 
 fun channelIcon(c: ServerChannel): ImageVector = when (c.type) {
@@ -411,7 +481,28 @@ fun channelIcon(c: ServerChannel): ImageVector = when (c.type) {
 }
 
 @Composable
-private fun ChannelRow(c: ServerChannel, onLongClick: (() -> Unit)?, onClick: () -> Unit) {
+private fun ChannelRow(c: ServerChannel, members: List<ServerMember>, onLongClick: (() -> Unit)?, onClick: () -> Unit) {
+    Column {
+        ChannelRowInner(c, onLongClick, onClick)
+        // Who's in a voice channel, Discord-style, under its name.
+        c.voiceMembers.forEach { v ->
+            val m = members.firstOrNull { it.user.id == v.id }
+            val b = LocalBants.current
+            Row(Modifier.padding(start = 40.dp, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Avatar(m?.user?.displayName ?: "?", m?.user?.avatar, size = 24.dp, outlined = false)
+                Spacer(Modifier.width(8.dp))
+                Text(m?.shownName() ?: "Someone", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = b.onCard, modifier = Modifier.weight(1f, fill = false))
+                if (v.muted) {
+                    Spacer(Modifier.width(6.dp))
+                    Icon(Icons.Default.MicOff, contentDescription = "Muted", tint = b.muted, modifier = Modifier.size(15.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChannelRowInner(c: ServerChannel, onLongClick: (() -> Unit)?, onClick: () -> Unit) {
     val b = LocalBants.current
     val hidden = !c.permissions.has(Perm.VIEW_CHANNEL)
     val unread = c.unread || c.mentionCount > 0
