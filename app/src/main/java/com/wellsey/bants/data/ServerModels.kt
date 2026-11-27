@@ -94,6 +94,8 @@ data class ChannelAuthor(
     val nickname: String? = null,
     /** Posted by a webhook (Unraid, a game server…), not a person. */
     val bot: Boolean = false,
+    val decoration: String? = null,
+    val nameStyle: NameStyle? = null,
 )
 
 @Serializable
@@ -134,7 +136,7 @@ data class ChannelAttachment(
 )
 
 @Serializable
-data class ChannelReaction(val emoji: String, val userIds: List<Long> = emptyList())
+data class ChannelReaction(val emoji: String, val userIds: List<Long> = emptyList(), val superIds: List<Long> = emptyList())
 
 @Serializable
 data class ChannelMessage(
@@ -156,6 +158,7 @@ data class ChannelMessage(
     /** Custom emojis used in the text or reactions, so anyone can draw them. */
     val emojis: List<CustomEmoji> = emptyList(),
     val poll: ChannelPoll? = null,
+    val meta: kotlinx.serialization.json.JsonObject? = null,
     // Local-only state for messages still on their way to the server.
     @Transient val pending: Boolean = false,
     @Transient val failed: Boolean = false,
@@ -173,6 +176,10 @@ data class MemberUser(
     val pronouns: String = "",
     val customStatus: String = "",
     val statusEmoji: String = "",
+    val themeColours: List<Long>? = null,
+    val decoration: String? = null,
+    val profileEffect: String? = null,
+    val nameStyle: NameStyle? = null,
 )
 
 /** Someone's profile in one server. Empty bits fall back to their main profile. */
@@ -322,6 +329,10 @@ data class ShownProfile(
     val status: String,
     val statusEmoji: String,
     val online: Boolean,
+    val theme: List<Long>? = null,
+    val decoration: String? = null,
+    val effect: String? = null,
+    val nameStyle: NameStyle? = null,
 )
 
 fun ServerMember.shown() = ShownProfile(
@@ -336,7 +347,14 @@ fun ServerMember.shown() = ShownProfile(
     status = user.customStatus,
     statusEmoji = user.statusEmoji,
     online = online,
+    theme = user.themeColours,
+    decoration = user.decoration,
+    effect = user.profileEffect,
+    nameStyle = user.nameStyle,
 )
 
 /** Someone's picture in a server: their server avatar if they've set one. */
 val ServerMember.shownAvatar: String? get() = serverProfile.avatar ?: user.avatar
+
+/** A sticker sent into a channel (drawn big, with no frame). */
+val ChannelMessage.isSticker: Boolean get() = meta?.get("sticker")?.toString() == "true"

@@ -80,7 +80,9 @@ fun ProfileCardView(
     actions: (@Composable () -> Unit)? = null,
 ) {
     val b = LocalBants.current
-    Column(modifier) {
+    val theme = Flair.themeBrush(p.theme)
+    Box(modifier.then(if (theme != null) Modifier.background(theme) else Modifier)) {
+    Column {
         Box(Modifier.fillMaxWidth().height(150.dp)) {
             Box(
                 Modifier.fillMaxWidth().height(110.dp)
@@ -92,14 +94,14 @@ fun ProfileCardView(
                 Modifier.padding(start = 16.dp).offset(y = 62.dp).size(88.dp)
                     .background(b.card, CircleShape).padding(5.dp),
             ) {
-                Avatar(p.displayName, p.avatar, size = 78.dp)
+                DecoratedAvatar(p.displayName, p.avatar, size = 78.dp, decoration = p.decoration)
                 if (p.online) {
                     Box(Modifier.align(Alignment.BottomEnd).padding(4.dp).size(18.dp).background(OnlineGreen, CircleShape).border(3.dp, b.card, CircleShape))
                 }
             }
         }
         Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(p.name, fontFamily = Bricolage, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, color = b.onCard)
+            StyledName(p.name, p.nameStyle, fallback = if (theme != null) Color.White else b.onCard, fontSize = 22.sp)
             Text("@${p.username}" + if (p.pronouns.isNotBlank()) " · ${p.pronouns}" else "", fontSize = 14.sp, color = b.muted)
             if (p.status.isNotBlank() || p.statusEmoji.isNotBlank()) {
                 Text(
@@ -146,6 +148,9 @@ fun ProfileCardView(
                 actions()
             }
         }
+    }
+    // The profile effect plays over the whole card when it opens (and when it changes in the editor).
+    ProfileEffect(p.effect, p.effect, Modifier.matchParentSize())
     }
 }
 
@@ -325,7 +330,8 @@ fun ProfileExtras() {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("PROFILE CARD", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp, color = b.muted)
         ProfileCardView(
-            ShownProfile(u.displayName, u.displayName, u.username, u.avatar, u.banner, u.accentColour, pronouns, u.about, status, emoji, online = true),
+            ShownProfile(u.displayName, u.displayName, u.username, u.avatar, u.banner, u.accentColour, pronouns, u.about, status, emoji, online = true,
+                theme = u.themeColours, decoration = u.decoration, effect = u.profileEffect, nameStyle = u.nameStyle),
             modifier = Modifier.fillMaxWidth().chunky(RoundedCornerShape(18.dp), b.card, b.outline, shadow = 3.dp).clip(RoundedCornerShape(18.dp)),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -347,6 +353,24 @@ fun ProfileExtras() {
                 })
             }
         }
+        // Flair saves as soon as you pick something, so the card above updates straight away.
+        FlairEditor(
+            theme = u.themeColours,
+            onTheme = { t -> save(kotlinx.serialization.json.buildJsonObject { put("themeColours", if (t == null) kotlinx.serialization.json.JsonNull else kotlinx.serialization.json.JsonArray(t.map { kotlinx.serialization.json.JsonPrimitive(it) })) }) },
+            decoration = u.decoration,
+            onDecoration = { d -> save(kotlinx.serialization.json.buildJsonObject { put("decoration", d?.let { kotlinx.serialization.json.JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull) }) },
+            effect = u.profileEffect,
+            onEffect = { e -> save(kotlinx.serialization.json.buildJsonObject { put("profileEffect", e?.let { kotlinx.serialization.json.JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull) }) },
+            nameStyle = u.nameStyle,
+            onNameStyle = { ns ->
+                save(kotlinx.serialization.json.buildJsonObject {
+                    put("nameStyle", if (ns == null) kotlinx.serialization.json.JsonNull else kotlinx.serialization.json.buildJsonObject {
+                        put("font", kotlinx.serialization.json.JsonPrimitive(ns.font))
+                        put("colours", kotlinx.serialization.json.JsonArray(ns.colours.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+                    })
+                })
+            },
+        )
         OutlinedTextField(value = pronouns, onValueChange = { pronouns = it.take(40) }, label = { Text("Pronouns") }, placeholder = { Text("he/him, she/her, they/them…") },
             singleLine = true, shape = FieldShape, colors = chunkyFieldColors(), modifier = Modifier.fillMaxWidth())
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

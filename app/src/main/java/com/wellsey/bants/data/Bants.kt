@@ -333,8 +333,19 @@ object Bants {
         upload(bytes.toRequestBody(mime.toMediaType()), filename).id
 
     suspend fun uploadImage(uri: Uri, maxSide: Int = 1600): String {
+        // GIFs go up as they are, so animated avatars and banners keep moving.
+        rawGif(uri)?.let { return upload(it.toRequestBody("image/gif".toMediaType()), "image.gif").id }
         val (bytes, mime) = withContext(Dispatchers.IO) { compressImage(uri, maxSide = maxSide) }
         return upload(bytes.toRequestBody(mime.toMediaType()), "image.jpg").id
+    }
+
+    /** The bytes of a GIF (up to 10 MB), or null if it isn't one. */
+    private suspend fun rawGif(uri: Uri): ByteArray? = withContext(Dispatchers.IO) {
+        val resolver = appContext.contentResolver
+        if (resolver.getType(uri) != "image/gif") return@withContext null
+        val bytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: return@withContext null
+        if (bytes.size > 10 * 1024 * 1024) throw ApiException(0, "That GIF is too big (10 MB max)")
+        bytes
     }
 
     suspend fun uploadAvatar(uri: Uri) {
@@ -660,6 +671,7 @@ object Bants {
     }
 
     private suspend fun uploadPhoto(uri: Uri): MediaUpload {
+        rawGif(uri)?.let { return upload(it.toRequestBody("image/gif".toMediaType()), "avatar.gif") }
         val (bytes, mime) = withContext(Dispatchers.IO) { compressImage(uri, maxSide = 640) }
         return upload(bytes.toRequestBody(mime.toMediaType()), "photo.jpg")
     }
@@ -719,8 +731,8 @@ object Bants {
     }
 
     /** Toggles your reaction. Shows straight away and corrects itself if the server disagrees. */
-    suspend fun react(m: Message, emoji: String) {
-        val mine = m.reactions.firstOrNull { myId in it.userIds }?.emoji
+    suspend fun react(m: Message, emoji: String, isSuper: Boolean = false) {
+        val mine = if (isSuper) null else m.reactions.firstOrNull { myId in it.userIds }?.emoji
         val without = m.reactions.map { it.copy(userIds = it.userIds - myId) }.filter { it.userIds.isNotEmpty() }
         val updated = when {
             mine == emoji -> without
@@ -729,7 +741,7 @@ object Bants {
         }
         putMessages(m.conversationId, listOf(m.copy(reactions = updated)))
         try {
-            val fromServer = call { api.post<Message>("/api/messages/${m.id}/react", buildJsonObject { put("emoji", emoji) }) }
+            val fromServer = call { api.post<Message>("/api/messages/${m.id}/react", buildJsonObject { put("emoji", emoji); put("super", isSuper) }) }
             putMessages(m.conversationId, listOf(fromServer))
         } catch (e: Exception) {
             putMessages(m.conversationId, listOf(m))

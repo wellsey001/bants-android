@@ -20,7 +20,16 @@ data class User(
     val pronouns: String = "",
     val customStatus: String = "",
     val statusEmoji: String = "",
+    // Flair (Nitro-style, free for everyone)
+    val themeColours: List<Long>? = null,
+    val decoration: String? = null,
+    val profileEffect: String? = null,
+    val nameStyle: NameStyle? = null,
 )
+
+/** A name in a chosen font, optionally in one colour or a two-colour gradient. */
+@Serializable
+data class NameStyle(val font: String = "default", val colours: List<Long> = emptyList())
 
 @Serializable
 data class Message(
@@ -118,7 +127,7 @@ data class GifPage(val gifs: List<Gif> = emptyList(), val nextOffset: Int = 0)
 data class SearchResults(val results: List<Message> = emptyList())
 
 @Serializable
-data class Reaction(val emoji: String, val userIds: List<Long> = emptyList())
+data class Reaction(val emoji: String, val userIds: List<Long> = emptyList(), val superIds: List<Long> = emptyList())
 
 @Serializable
 data class MediaInfo(val mime: String = "", val size: Long = 0, val filename: String = "")

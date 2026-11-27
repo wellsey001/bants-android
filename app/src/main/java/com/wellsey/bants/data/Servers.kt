@@ -284,18 +284,26 @@ object Servers {
         messages.update { all -> all[channelId]?.let { list -> all + (channelId to list.filter { it.id != id }) } ?: all }
     }
 
-    suspend fun toggleReaction(m: ChannelMessage, emoji: String) {
-        val mine = m.reactions.firstOrNull { it.emoji == emoji }?.userIds?.contains(Bants.myId) == true
+    /** Super reactions are the big ones that burst. One on a reaction you've already added upgrades it. */
+    val bursts = kotlinx.coroutines.flow.MutableSharedFlow<Pair<Long, String>>(extraBufferCapacity = 8)
+
+    suspend fun toggleReaction(m: ChannelMessage, emoji: String, isSuper: Boolean = false) {
+        val r = m.reactions.firstOrNull { it.emoji == emoji }
+        val mine = r?.userIds?.contains(Bants.myId) == true
+        val remove = mine && !(isSuper && Bants.myId !in r!!.superIds)
         val path = "/api/channel-messages/${m.id}/reactions/${java.net.URLEncoder.encode(emoji, "UTF-8").replace("+", "%20")}"
-        if (mine) api.delete<JsonObject>(path) else api.raw("PUT", path, api.body(JsonObject(emptyMap())))
-        applyReaction(m.channelId, m.id, Bants.myId, emoji, !mine)
+        if (remove) api.delete<JsonObject>(path) else api.raw("PUT", path + if (isSuper) "?super=1" else "", api.body(JsonObject(emptyMap())))
+        applyReaction(m.channelId, m.id, Bants.myId, emoji, !remove, isSuper)
+        if (!remove && isSuper) bursts.tryEmit(m.id to emoji)
+        val mine2 = !remove
+        if (!mine2) return
         if (!mine) {
             if (Emojis.parse(emoji) != null) Emojis.used(emoji)
             else Bants.session.recentReactions = (listOf(emoji) + Bants.session.recentReactions.filter { it != emoji })
         }
     }
 
-    private fun applyReaction(channelId: Long, messageId: Long, userId: Long, emoji: String, added: Boolean) {
+    private fun applyReaction(channelId: Long, messageId: Long, userId: Long, emoji: String, added: Boolean, isSuper: Boolean = false) {
         messages.update { all ->
             val list = all[channelId] ?: return@update all
             all + (channelId to list.map { m ->
@@ -303,9 +311,11 @@ object Servers {
                 val others = m.reactions.filter { it.emoji != emoji }
                 val current = m.reactions.firstOrNull { it.emoji == emoji }?.userIds.orEmpty()
                 val users = if (added) (current + userId).distinct() else current - userId
+                val oldSupers = m.reactions.firstOrNull { it.emoji == emoji }?.superIds.orEmpty()
+                val supers = if (!added) oldSupers - userId else if (isSuper) (oldSupers + userId).distinct() else oldSupers
                 val reactions = if (users.isEmpty()) others else {
                     val idx = m.reactions.indexOfFirst { it.emoji == emoji }
-                    val r = ChannelReaction(emoji, users)
+                    val r = ChannelReaction(emoji, users, supers)
                     if (idx >= 0) m.reactions.map { if (it.emoji == emoji) r else it } else others + r
                 }
                 m.copy(reactions = reactions)
@@ -564,6 +574,14 @@ object Servers {
         return t
     }
 
+    suspend fun sendSticker(channelId: Long, media: String, replyTo: Long?) {
+        val m = api.post<ChannelMessage>("/api/channels/$channelId/sticker", buildJsonObject {
+            put("media", media)
+            replyTo?.let { put("replyTo", it) }
+        })
+        putMessages(channelId, listOf(m))
+    }
+
     suspend fun acceptRules(serverId: Long) {
         api.post<JsonObject>("/api/servers/$serverId/accept-rules")
         refreshServer(serverId)
@@ -728,7 +746,12 @@ object Servers {
                 "channel.message.delete" -> removeMessage(ev.long("channelId"), ev.long("messageId"))
                 "channel.reaction" -> {
                     val uid = ev.long("userId")
-                    if (uid != Bants.myId) applyReaction(ev.long("channelId"), ev.long("messageId"), uid, ev.str("emoji") ?: return, ev.bool("added") ?: true)
+                    if (uid != Bants.myId) {
+                        val emoji = ev.str("emoji") ?: return
+                        val sup = ev.bool("super") == true
+                        applyReaction(ev.long("channelId"), ev.long("messageId"), uid, emoji, ev.bool("added") ?: true, sup)
+                        if (sup && ev.bool("added") != false) bursts.tryEmit(ev.long("messageId") to emoji)
+                    }
                 }
                 "channel.typing" -> {
                     val cid = ev.long("channelId")

@@ -2,6 +2,10 @@
 
 package com.wellsey.bants.ui
 
+import androidx.compose.foundation.border
+
+import androidx.compose.material.icons.filled.AutoAwesome
+
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.Animatable
@@ -184,9 +188,10 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
     var locationOpen by remember { mutableStateOf(false) }
     // Re-read the chat's look whenever you come back to it (e.g. from the wallpaper screen).
     val chatStyle = remember(convId, nav.current) { ChatStyle.load(convId) }
-    fun react(m: Message, emoji: String) {
-        Bants.session.recentReactions = listOf(emoji) + Bants.session.recentReactions.filter { it != emoji }
-        scope.launch { runCatching { Bants.react(m, emoji) }.onFailure { toast(context, it.message) } }
+    var superReact by remember { mutableStateOf(false) }
+    fun react(m: Message, emoji: String, isSuper: Boolean = false) {
+        if (com.wellsey.bants.data.Emojis.parse(emoji) == null) Bants.session.recentReactions = listOf(emoji) + Bants.session.recentReactions.filter { it != emoji }
+        scope.launch { runCatching { Bants.react(m, emoji, isSuper) }.onFailure { toast(context, it.message) } }
     }
     // New messages that land while you're looking get slapped on like stickers (once each).
     val openedAt = remember(convId) { System.currentTimeMillis() }
@@ -633,7 +638,8 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
                             onVideo = { video = m },
                             onReply = { if (!m.pending && !m.failed && !m.deleted) { replyingTo = m; editing = null } },
                             onReact = { emoji -> react(m, emoji) },
-                            onMoreReactions = { reactingTo = m },
+                            onMoreReactions = { superReact = false; reactingTo = m },
+                            onSuperReact = { superReact = true; reactingTo = m },
                             onForward = { forwarding = m },
                             style = chatStyle,
                             onInfo = { infoFor = m },
@@ -675,7 +681,7 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
     reactingTo?.let { m ->
         EmojiReactionSheet(onDismiss = { reactingTo = null }, custom = com.wellsey.bants.data.Emojis.mine.collectAsState().value) { emoji ->
             reactingTo = null
-            react(m, emoji)
+            react(m, emoji, superReact)
         }
     }
 
@@ -799,6 +805,7 @@ private fun MessageBubble(
     onReply: () -> Unit,
     onReact: (String) -> Unit,
     onMoreReactions: () -> Unit,
+    onSuperReact: () -> Unit = {},
     onForward: () -> Unit,
     style: ChatStyle,
     onInfo: () -> Unit,
@@ -983,6 +990,11 @@ private fun MessageBubble(
                     }
                     HorizontalDivider(Modifier.padding(vertical = 4.dp))
                     DropdownMenuItem(
+                        text = { Text("Super reaction ✨") },
+                        leadingIcon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
+                        onClick = { menu = false; onSuperReact() },
+                    )
+                    DropdownMenuItem(
                         text = { Text("Reply") },
                         leadingIcon = { Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = null) },
                         onClick = { menu = false; onReply() },
@@ -1048,6 +1060,7 @@ private fun MessageBubble(
                     val reactedByMe = myId in r.userIds
                     Box(
                         Modifier
+                            .then(if (r.superIds.isNotEmpty()) Modifier.border(3.dp, androidx.compose.ui.graphics.Brush.linearGradient(listOf(BantsPurple, BantsPink)), RoundedCornerShape(50)) else Modifier)
                             .chunkyClickable(RoundedCornerShape(50), if (reactedByMe) BantsYellow else b.card, b.outline, shadow = 0.dp, border = 2.dp) { onReact(r.emoji) },
                     ) {
                         Row(Modifier.padding(horizontal = 8.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {

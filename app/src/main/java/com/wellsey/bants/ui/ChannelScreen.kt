@@ -2,6 +2,12 @@
 
 package com.wellsey.bants.ui
 
+import com.wellsey.bants.data.isSticker
+
+import androidx.compose.foundation.border
+
+import androidx.compose.material.icons.filled.AutoAwesome
+
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -145,6 +151,10 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
     var editing by remember { mutableStateOf<ChannelMessage?>(null) }
     var picking by remember { mutableStateOf<ChannelMessage?>(null) }
     var profileOf by remember { mutableStateOf<Long?>(null) }
+    var superPick by remember { mutableStateOf(false) }
+    // Super reactions burst where they land (yours and everyone else's).
+    var burst by remember { mutableStateOf<Triple<Long, String, Long>?>(null) }
+    LaunchedEffect(Unit) { Servers.bursts.collect { (mid, e) -> burst = Triple(mid, e, System.nanoTime()) } }
     var pendingGif by remember(channelId) { mutableStateOf<Gif?>(null) }
     var gifSheet by remember { mutableStateOf(false) }
     var emojiSheet by remember { mutableStateOf(false) }
@@ -276,9 +286,11 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
                             m, server, members, list, grouped, perms, myId,
                             onReply = { replyingTo = it; editing = null },
                             onEdit = { editing = it; replyingTo = null; field = TextFieldValue(plainBody(it.body, members), TextRange(plainBody(it.body, members).length)) },
-                            onReactMore = { picking = it },
+                            onReactMore = { superPick = false; picking = it },
                             onProfile = { profileOf = it },
                             onEvents = { nav.go(Screen.Events(server.id)) },
+                            onSuperReact = { superPick = true; picking = it },
+                            burst = burst,
                             onThread = { msg ->
                                 scope.launch {
                                     runCatching { Servers.startThread(channelId, msg.body.take(40), msg.id) }
@@ -410,10 +422,8 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
                     if (editing == null) {
                         ChunkyIconButton(Icons.Default.EmojiEmotions, "Emojis", { emojiSheet = true }, size = 44.dp, shadow = 2.dp, modifier = Modifier.padding(bottom = 7.dp))
                         Spacer(Modifier.width(6.dp))
-                        if (gifsOn) {
-                            ChunkyIconButton(Icons.Default.Gif, "GIF", { gifSheet = true }, size = 44.dp, shadow = 2.dp, modifier = Modifier.padding(bottom = 7.dp))
-                            Spacer(Modifier.width(6.dp))
-                        }
+                        ChunkyIconButton(Icons.Default.Gif, "GIFs and stickers", { gifSheet = true }, size = 44.dp, shadow = 2.dp, modifier = Modifier.padding(bottom = 7.dp))
+                        Spacer(Modifier.width(6.dp))
                     }
                     OutlinedTextField(
                         value = field,
@@ -458,7 +468,16 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
     profileOf?.let { uid -> ProfileSheet(server.id, uid, nav) { profileOf = null } }
     if (polling) PollDialog(channelId) { polling = false }
     if (showRules && server.rules.isNotBlank()) RulesDialog(server) { showRules = false }
-    if (gifSheet) GifSheet(onDismiss = { gifSheet = false }) { g -> gifSheet = false; pendingGif = g }
+    if (gifSheet) GifStickerSheet(
+        onDismiss = { gifSheet = false },
+        onGif = { g -> gifSheet = false; pendingGif = g },
+        onSticker = { media ->
+            gifSheet = false
+            val reply = replyingTo?.id
+            replyingTo = null
+            scope.launch { runCatching { Servers.sendSticker(channelId, media, reply) }.onFailure { toast(context, it.message) } }
+        },
+    )
     if (emojiSheet) CustomEmojiSheet(
         server = server.emojis,
         onDismiss = { emojiSheet = false },
@@ -474,7 +493,7 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
     picking?.let { m ->
         EmojiReactionSheet(onDismiss = { picking = null }, custom = server.emojis + Emojis.mine.collectAsState().value) { emoji ->
             picking = null
-            scope.launch { runCatching { Servers.toggleReaction(m, emoji) }.onFailure { toast(context, it.message) } }
+            scope.launch { runCatching { Servers.toggleReaction(m, emoji, superPick) }.onFailure { toast(context, it.message) } }
         }
     }
     if (threadsOpen) ThreadsDialog(channel, nav) { threadsOpen = false }
@@ -549,6 +568,8 @@ private fun ChannelMessageRow(
     onThread: (ChannelMessage) -> Unit,
     onProfile: (Long) -> Unit = {},
     onEvents: () -> Unit = {},
+    onSuperReact: (ChannelMessage) -> Unit = {},
+    burst: Triple<Long, String, Long>? = null,
 ) {
     val b = LocalBants.current
     val context = LocalContext.current
@@ -620,7 +641,7 @@ private fun ChannelMessageRow(
         ) {
             Box(Modifier.width(44.dp)) {
                 if (!grouped) Box(Modifier.clip(CircleShape).clickable(enabled = m.author != null && m.author.bot != true) { m.author?.let { onProfile(it.id) } }) {
-                    Avatar(m.author?.displayName ?: "?", m.author?.avatar, size = 38.dp)
+                    DecoratedAvatar(m.author?.displayName ?: "?", m.author?.avatar, size = 38.dp, decoration = m.author?.decoration)
                 }
             }
             Spacer(Modifier.width(8.dp))
@@ -639,12 +660,11 @@ private fun ChannelMessageRow(
                 if (!grouped) {
                     Row(verticalAlignment = Alignment.Bottom) {
                         val colour = m.author?.let { Servers.nameColour(server.id, it.id) }
-                        Text(
+                        StyledName(
                             m.author?.shownName() ?: "Deleted account",
-                            fontFamily = Bricolage, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp,
-                            color = colour?.let { Color(0xFF000000 or it) } ?: b.onCard,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false).clickable(enabled = m.author != null) { m.author?.let { onProfile(it.id) } },
+                            m.author?.nameStyle,
+                            fallback = colour?.let { Color(0xFF000000 or it) } ?: b.onCard,
+                            modifier = Modifier.weight(1f, fill = false).clickable(enabled = m.author != null && m.author.bot != true) { m.author?.let { onProfile(it.id) } },
                         )
                         if (m.author?.id == server.ownerId) Text(" 👑", fontSize = 13.sp)
                         if (m.author?.bot == true) Text(" BOT ", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color.White,
@@ -667,7 +687,9 @@ private fun ChannelMessageRow(
                 }
                 if (m.editedAt != null) Text("(edited)", fontSize = 11.sp, color = b.muted)
                 m.attachments.forEach { a ->
-                    if (a.mime.startsWith("audio/")) {
+                    if (m.isSticker) {
+                        AsyncImage(model = mediaUrl(a.id), contentDescription = "Sticker", contentScale = ContentScale.Fit, modifier = Modifier.padding(top = 4.dp).size(150.dp))
+                    } else if (a.mime.startsWith("audio/")) {
                         ChannelVoice(a)
                     } else if (a.mime.startsWith("image/")) {
                         AsyncImage(
@@ -685,8 +707,10 @@ private fun ChannelMessageRow(
                     FlowRow(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         m.reactions.forEach { r ->
                             val iReacted = myId in r.userIds
+                            Box(contentAlignment = Alignment.Center) {
                             Row(
                                 Modifier
+                                    .then(if (r.superIds.isNotEmpty()) Modifier.border(3.dp, androidx.compose.ui.graphics.Brush.linearGradient(listOf(BantsPurple, BantsPink)), RoundedCornerShape(50)) else Modifier)
                                     .chunkyClickable(RoundedCornerShape(50), if (iReacted) BantsYellow else b.card, b.outline, shadow = 0.dp, border = 2.dp) {
                                         scope.launch { runCatching { Servers.toggleReaction(m, r.emoji) }.onFailure { toast(context, it.message) } }
                                     }
@@ -696,6 +720,8 @@ private fun ChannelMessageRow(
                                 EmojiGlyph(r.emoji, size = 18.dp, fontSize = 14.sp, lookup = m.emojis.associateBy { it.id })
                                 Spacer(Modifier.width(4.dp))
                                 Text("${r.userIds.size}", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = if (iReacted) BantsInk else b.onCard)
+                            }
+                            if (burst?.first == m.id && burst.second == r.emoji) SuperBurst(r.emoji, burst.third)
                             }
                         }
                     }
@@ -724,6 +750,7 @@ private fun ChannelMessageRow(
             }
             HorizontalDivider()
             DropdownMenuItem(text = { Text("More reactions") }, leadingIcon = { Icon(Icons.Default.AddReaction, null) }, onClick = { menu = false; onReactMore(m) })
+            DropdownMenuItem(text = { Text("Super reaction ✨") }, leadingIcon = { Icon(Icons.Default.AutoAwesome, null) }, onClick = { menu = false; onSuperReact(m) })
             if (perms.has(Perm.SEND_MESSAGES)) {
                 DropdownMenuItem(text = { Text("Reply") }, leadingIcon = { Icon(Icons.AutoMirrored.Filled.Reply, null) }, onClick = { menu = false; onReply(m) })
             }
