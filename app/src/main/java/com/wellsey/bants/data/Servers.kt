@@ -188,7 +188,7 @@ object Servers {
 
     fun send(channelId: Long, text: String, replyTo: Long? = null) {
         val ch = channel(channelId) ?: return
-        val body = Emojis.expand(withMentions(ch.serverId, text.trim()))
+        val body = Emojis.expand(withMentions(ch.serverId, text.trim()), ch.serverId)
         if (body.isEmpty()) return
         val me = Bants.me.value ?: return
         val clientId = UUID.randomUUID().toString()
@@ -229,7 +229,7 @@ object Servers {
         val ch = channel(channelId) ?: return
         val sent = api.post<ChannelMessage>("/api/channels/$channelId/gif", buildJsonObject {
             put("url", gif.url)
-            put("body", Emojis.expand(withMentions(ch.serverId, text.trim())))
+            put("body", Emojis.expand(withMentions(ch.serverId, text.trim()), ch.serverId))
             put("clientId", UUID.randomUUID().toString())
             replyTo?.let { put("replyTo", it) }
         })
@@ -271,7 +271,7 @@ object Servers {
     suspend fun markServerRead(serverId: Long) = upsert(api.post<BantsServer>("/api/servers/$serverId/read"))
 
     suspend fun edit(m: ChannelMessage, body: String) {
-        val updated = api.patch<ChannelMessage>("/api/channel-messages/${m.id}", buildJsonObject { put("body", Emojis.expand(withMentions(m.serverId ?: 0, body.trim()))) })
+        val updated = api.patch<ChannelMessage>("/api/channel-messages/${m.id}", buildJsonObject { put("body", Emojis.expand(withMentions(m.serverId ?: 0, body.trim()), m.serverId)) })
         putMessages(m.channelId, listOf(updated))
     }
 
@@ -501,6 +501,99 @@ object Servers {
         runCatching { loadMembers(serverId) }
     }
 
+    // ───────────── polls, events, forums, rules, server emojis, webhooks ─────────────
+
+    val events = MutableStateFlow<Map<Long, List<ServerEvent>>>(emptyMap())
+
+    suspend fun createPoll(channelId: Long, question: String, options: List<String>, multi: Boolean, hours: Int) {
+        val m = api.post<ChannelMessage>("/api/channels/$channelId/polls", buildJsonObject {
+            put("question", question.trim())
+            put("options", kotlinx.serialization.json.JsonArray(options.map { kotlinx.serialization.json.JsonPrimitive(it.trim()) }))
+            put("multi", multi)
+            put("hours", hours)
+        })
+        putMessages(channelId, listOf(m))
+    }
+
+    suspend fun vote(m: ChannelMessage, options: List<Int>) {
+        val u = api.post<ChannelMessage>("/api/channel-messages/${m.id}/vote", buildJsonObject {
+            put("options", kotlinx.serialization.json.JsonArray(options.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+        })
+        putMessages(m.channelId, listOf(u))
+    }
+
+    suspend fun loadEvents(serverId: Long): List<ServerEvent> {
+        val list = api.get<List<ServerEvent>>("/api/servers/$serverId/events")
+        events.update { it + (serverId to list) }
+        return list
+    }
+
+    suspend fun saveEvent(serverId: Long, existing: ServerEvent?, title: String, startsAt: Long, endsAt: Long?, channelId: Long?, location: String, description: String) {
+        val body = buildJsonObject {
+            put("title", title.trim())
+            put("startsAt", startsAt)
+            if (endsAt == null) put("endsAt", JsonNull) else put("endsAt", endsAt)
+            if (channelId == null) put("channelId", JsonNull) else put("channelId", channelId)
+            put("location", location)
+            put("description", description)
+        }
+        if (existing == null) api.post<ServerEvent>("/api/servers/$serverId/events", body) else api.patch<ServerEvent>("/api/events/${existing.id}", body)
+        loadEvents(serverId)
+    }
+
+    suspend fun deleteEvent(e: ServerEvent) {
+        api.delete<JsonObject>("/api/events/${e.id}")
+        events.update { all -> all + (e.serverId to all[e.serverId].orEmpty().filter { it.id != e.id }) }
+    }
+
+    suspend fun rsvp(e: ServerEvent, status: String?) {
+        val u = api.raw("PUT", "/api/events/${e.id}/rsvp", api.body(buildJsonObject { if (status == null) put("status", JsonNull) else put("status", status) }))
+        val ev = api.json.decodeFromString(ServerEvent.serializer(), u)
+        events.update { all -> all + (e.serverId to all[e.serverId].orEmpty().map { if (it.id == ev.id) ev else it }) }
+    }
+
+    /** A forum post: a title and the first message. Returns the new post (a thread). */
+    suspend fun createPost(forumId: Long, title: String, body: String, attachment: String?): ServerChannel {
+        val ch = channel(forumId)
+        val t = api.post<ServerChannel>("/api/channels/$forumId/threads", buildJsonObject {
+            put("name", title.trim())
+            put("body", Emojis.expand(withMentions(ch?.serverId ?: 0, body.trim()), ch?.serverId))
+            if (attachment != null) put("attachments", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(attachment))))
+        })
+        threads.update { it + (t.id to t) }
+        return t
+    }
+
+    suspend fun acceptRules(serverId: Long) {
+        api.post<JsonObject>("/api/servers/$serverId/accept-rules")
+        refreshServer(serverId)
+    }
+
+    suspend fun saveRules(serverId: Long, rules: String, welcome: String, require: Boolean) {
+        api.raw("PUT", "/api/servers/$serverId/rules", api.body(buildJsonObject {
+            put("rules", rules)
+            put("welcome", welcome)
+            put("requireRules", require)
+        }))
+        refreshServer(serverId)
+    }
+
+    suspend fun addServerEmoji(context: android.content.Context, serverId: Long, uri: android.net.Uri) {
+        val (mediaId, name) = Emojis.prepareAndUpload(context, uri)
+        api.post<CustomEmoji>("/api/servers/$serverId/emojis", buildJsonObject {
+            put("name", name)
+            put("media", mediaId)
+        })
+    }
+
+    suspend fun renameServerEmoji(e: CustomEmoji, name: String) { api.patch<CustomEmoji>("/api/server-emojis/${e.id}", buildJsonObject { put("name", name.trim()) }) }
+    suspend fun deleteServerEmoji(e: CustomEmoji) { api.delete<JsonObject>("/api/server-emojis/${e.id}") }
+
+    suspend fun webhooks(channelId: Long): List<Webhook> = api.get("/api/channels/$channelId/webhooks")
+    suspend fun createWebhook(channelId: Long, name: String): Webhook = api.post("/api/channels/$channelId/webhooks", buildJsonObject { put("name", name.ifBlank { "Webhook" }) })
+    suspend fun deleteWebhook(h: Webhook) { api.delete<JsonObject>("/api/webhooks/${h.id}") }
+    suspend fun newWebhookUrl(h: Webhook): Webhook = api.patch("/api/webhooks/${h.id}", buildJsonObject { put("newToken", true) })
+
     /** The colour of someone's most senior coloured role, for their name. */
     fun nameColour(serverId: Long, userId: Long): Long? {
         val s = servers.value[serverId] ?: return null
@@ -519,6 +612,27 @@ object Servers {
                     activeChannel?.let { id -> runCatching { loadMessages(id) } }
                 }
                 "server.add", "server.update" -> upsert(decode(ev["server"]))
+                "server.emojis" -> {
+                    val sid = ev.long("serverId")
+                    val list = decode<List<CustomEmoji>>(ev["emojis"])
+                    servers.update { all -> all[sid]?.let { all + (sid to it.copy(emojis = list)) } ?: all }
+                }
+                "server.event" -> {
+                    val sid = ev.long("serverId")
+                    val e = decode<ServerEvent>(ev["event"])
+                    val me = Bants.myId
+                    events.update { all ->
+                        val old = all[sid].orEmpty().firstOrNull { it.id == e.id }
+                        val mine = e.myRsvp ?: old?.myRsvp ?: when (me) { in e.going -> "going"; in e.interested -> "interested"; else -> null }
+                        all + (sid to (all[sid].orEmpty().filter { it.id != e.id } + e.copy(myRsvp = mine)).sortedBy { it.startsAt })
+                    }
+                }
+                "server.event.delete" -> {
+                    val sid = ev.long("serverId")
+                    val id = ev.long("eventId")
+                    events.update { all -> all + (sid to all[sid].orEmpty().filter { it.id != id }) }
+                }
+                "server.event.reminder" -> Bants.notices.tryEmit("${ev.str("title")} · ${ev.str("body")}")
                 "server.remove" -> forget(ev.long("serverId"))
                 "server.member.add" -> {
                     val sid = ev.long("serverId")

@@ -84,14 +84,16 @@ fun customEmojiInline(body: String, lookup: Map<Long, CustomEmoji>, big: Boolean
 
 /** Your emojis, to drop into a message. */
 @Composable
-fun CustomEmojiSheet(onDismiss: () -> Unit, onManage: () -> Unit, onPick: (CustomEmoji) -> Unit) {
-    val mine by Emojis.mine.collectAsState()
+fun CustomEmojiSheet(onDismiss: () -> Unit, onManage: () -> Unit, server: List<CustomEmoji> = emptyList(), onPick: (CustomEmoji) -> Unit) {
+    val mineOnly by Emojis.mine.collectAsState()
+    // This server's emojis first, then yours.
+    val mine = server + mineOnly
     val b = LocalBants.current
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = b.card) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 20.dp).navigationBarsPadding()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Your emojis", fontFamily = Bricolage, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, color = b.onCard, modifier = Modifier.weight(1f))
-                TextButton(onClick = onManage) { Text(if (mine.isEmpty()) "Add some" else "Manage") }
+                Text(if (server.isNotEmpty()) "Emojis" else "Your emojis", fontFamily = Bricolage, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, color = b.onCard, modifier = Modifier.weight(1f))
+                TextButton(onClick = onManage) { Text(if (mineOnly.isEmpty()) "Add yours" else "Manage yours") }
             }
             if (mine.isEmpty()) {
                 Text("Upload your own pictures or GIFs and use them in any server. Up to 50.", color = b.muted, modifier = Modifier.padding(vertical = 24.dp))

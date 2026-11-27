@@ -25,7 +25,9 @@ data class CustomEmoji(
     val name: String,
     val media: String,
     val animated: Boolean = false,
-    val userId: Long = 0,
+    val userId: Long? = null,
+    /** Set for emojis that belong to a server rather than a person. */
+    val serverId: Long? = null,
 ) {
     val token: String get() = "<${if (animated) "a" else ""}:$name:$id>"
 }
@@ -94,9 +96,10 @@ object Emojis {
 
     fun plain(text: String) = TOKEN.replace(text) { ":${it.groupValues[2]}:" }
 
-    /** Typing :name: for one of yours turns it into the real thing when you send. */
-    fun expand(text: String): String {
-        val list = mine.value
+    /** Typing :name: for one of yours (or this server's) turns it into the real thing when you send. */
+    fun expand(text: String, serverId: Long? = null): String {
+        val server = serverId?.let { Servers.servers.value[it]?.emojis }.orEmpty()
+        val list = mine.value + server
         if (list.isEmpty() || ':' !in text) return text
         val byName = list.associateBy { it.name.lowercase() }
         // Leave tokens that are already there alone.
@@ -132,6 +135,36 @@ object Emojis {
         var i = 2
         while (name.lowercase() in taken) name = "$base${i++}"
         return name
+    }
+
+    /** Shrinks a still to a 128px PNG (GIFs go up as they are, so they keep moving) and uploads it. Returns (media id, a name). */
+    suspend fun prepareAndUpload(context: Context, uri: Uri): Pair<String, String> {
+        val resolver = context.contentResolver
+        val mime = resolver.getType(uri) ?: "image/png"
+        val filename = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        } ?: "emoji"
+        val (bytes, type) = withContext(Dispatchers.IO) { prepare(context, uri, mime, filename) }
+        val id = Bants.uploadBytes(bytes, type, if (type == "image/gif") "emoji.gif" else "emoji.png")
+        var base = filename.substringBeforeLast('.').replace(Regex("[^A-Za-z0-9_]"), "_").replace(Regex("_+"), "_").trim('_').take(28)
+        if (base.length < 2) base = "emoji"
+        return id to base
+    }
+
+    private fun prepare(context: Context, uri: Uri, mime: String, filename: String): Pair<ByteArray, String> {
+        val resolver = context.contentResolver
+        return if (mime == "image/gif") {
+            val raw = resolver.openInputStream(uri)?.use { it.readBytes() } ?: throw ApiException(0, "Couldn't read that GIF")
+            if (raw.size > 1024 * 1024) throw ApiException(0, "$filename is over 1 MB. Try a smaller GIF")
+            raw to "image/gif"
+        } else {
+            val src = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) } ?: throw ApiException(0, "Couldn't read that picture")
+            val scale = minOf(1f, 128f / maxOf(src.width, src.height))
+            val bmp = if (scale < 1f) Bitmap.createScaledBitmap(src, (src.width * scale).toInt().coerceAtLeast(1), (src.height * scale).toInt().coerceAtLeast(1), true) else src
+            val out = ByteArrayOutputStream()
+            bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+            out.toByteArray() to "image/png"
+        }
     }
 
     /** Adds pictures as emojis. Stills get shrunk to 128px PNGs; GIFs go up as they are so they keep moving. */

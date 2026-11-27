@@ -134,6 +134,12 @@ object Notifications {
                 title = data["name"].orEmpty().ifBlank { "Someone" }
                 text = "accepted your request. Say hi!"
             }
+            "event" -> {
+                // Server events: 15 minutes to go, and starting now.
+                convId = 0
+                title = data["title"].orEmpty().ifBlank { "Event" }
+                text = data["body"].orEmpty()
+            }
             else -> return
         }
 
@@ -163,7 +169,8 @@ object Notifications {
             .setContentIntent(pending)
             .apply { data["messageId"]?.toLongOrNull()?.let { id -> addExtras(android.os.Bundle().apply { putLong(EXTRA_MESSAGE, id) }) } }
             .build()
-        NotificationManagerCompat.from(context).notify(if (convId > 0) convId.toInt() else -1, notification)
+        val id = if (convId > 0) convId.toInt() else data["eventId"]?.toIntOrNull()?.let { 900_000 + it } ?: -1
+        NotificationManagerCompat.from(context).notify(id, notification)
     }
 
     @SuppressLint("MissingPermission")

@@ -1,5 +1,15 @@
 package com.wellsey.bants.ui
 
+import androidx.compose.material.icons.filled.EditNote
+
+import androidx.compose.material.icons.filled.AddReaction
+
+import androidx.compose.material.icons.filled.Gavel
+
+import androidx.compose.material.icons.filled.Event
+
+import androidx.compose.material.icons.filled.Forum
+
 import androidx.compose.foundation.border
 
 import androidx.compose.foundation.clickable
@@ -330,6 +340,8 @@ fun ServerScreen(serverId: Long, nav: Navigator) {
     var menu by remember { mutableStateOf(false) }
     var inviting by remember { mutableStateOf(false) }
     var profileOf by remember { mutableStateOf<Long?>(null) }
+    var showRules by remember { mutableStateOf(false) }
+    var editingRules by remember { mutableStateOf(false) }
     var creatingIn by remember { mutableStateOf<Long?>(null) }
     var creating by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<ServerChannel?>(null) }
@@ -365,7 +377,11 @@ fun ServerScreen(serverId: Long, nav: Navigator) {
                         DropdownMenuItem(text = { Text("Server settings") }, leadingIcon = { Icon(Icons.Default.Settings, null) }, onClick = { menu = false; nav.go(Screen.ServerSettings(serverId)) })
                     }
                     DropdownMenuItem(text = { Text("Edit server profile") }, leadingIcon = { Icon(Icons.Default.Badge, null) }, onClick = { menu = false; nav.go(Screen.ServerProfile(serverId)) })
+                    DropdownMenuItem(text = { Text("Events") }, leadingIcon = { Icon(Icons.Default.Event, null) }, onClick = { menu = false; nav.go(Screen.Events(serverId)) })
+                    if (s.rules.isNotBlank()) DropdownMenuItem(text = { Text("Server rules") }, leadingIcon = { Icon(Icons.Default.Gavel, null) }, onClick = { menu = false; showRules = true })
+                    DropdownMenuItem(text = { Text("Server emojis") }, leadingIcon = { Icon(Icons.Default.AddReaction, null) }, onClick = { menu = false; nav.go(Screen.ServerEmojis(serverId)) })
                     DropdownMenuItem(text = { Text("Your emojis") }, leadingIcon = { Icon(Icons.Default.EmojiEmotions, null) }, onClick = { menu = false; nav.go(Screen.Emojis) })
+                    if (perms.has(Perm.MANAGE_SERVER)) DropdownMenuItem(text = { Text("Rules & welcome") }, leadingIcon = { Icon(Icons.Default.EditNote, null) }, onClick = { menu = false; editingRules = true })
                     DropdownMenuItem(text = { Text("Mark as read") }, leadingIcon = { Icon(Icons.Default.DoneAll, null) }, onClick = {
                         menu = false
                         scope.launch { runCatching { Servers.markServerRead(serverId) }.onFailure { toast(context, it.message) } }
@@ -429,8 +445,13 @@ fun ServerScreen(serverId: Long, nav: Navigator) {
 
     if (inviting) InviteDialog(s) { inviting = false }
     profileOf?.let { uid -> ProfileSheet(serverId, uid, nav) { profileOf = null } }
+    // First visit to a server with rules to accept: show them straight away.
+    var gated by remember(serverId) { mutableStateOf(false) }
+    LaunchedEffect(s.rulesAccepted, s.rules) { if (!s.rulesAccepted && s.rules.isNotBlank() && !gated) { gated = true; showRules = true } }
+    if (showRules) RulesDialog(s) { showRules = false }
+    if (editingRules) RulesEditor(s) { editingRules = false }
     if (creating) CreateChannelDialog(s, creatingIn) { creating = false }
-    editing?.let { c -> EditChannelDialog(c) { editing = null } }
+    editing?.let { c -> EditChannelDialog(c, nav) { editing = null } }
     if (confirm == "leave") ConfirmDialog("Leave ${s.name}?", "You'll need a new invite to get back in.", "Leave", onDismiss = { confirm = null }) {
         confirm = null
         scope.launch {
@@ -477,6 +498,7 @@ fun VoiceBar(modifier: Modifier = Modifier, onChat: ((Long) -> Unit)? = null) {
 fun channelIcon(c: ServerChannel): ImageVector = when (c.type) {
     "voice" -> Icons.AutoMirrored.Filled.VolumeUp
     "announcement" -> Icons.Default.Campaign
+    "forum" -> Icons.Default.Forum
     else -> Icons.Default.Tag
 }
 
@@ -674,6 +696,7 @@ private fun CreateChannelDialog(s: BantsServer, parentId: Long?, onDismiss: () -
                     ChunkyChip("Text", type == "text") { type = "text" }
                     ChunkyChip("Voice", type == "voice") { type = "voice" }
                     ChunkyChip("News", type == "announcement") { type = "announcement" }
+                    ChunkyChip("Forum", type == "forum") { type = "forum" }
                 }
                 if (parentId == null) ChunkyChip("Category", type == "category") { type = "category" }
                 OutlinedTextField(
@@ -714,7 +737,7 @@ private fun CreateChannelDialog(s: BantsServer, parentId: Long?, onDismiss: () -
 private val slowmodes = listOf(0 to "Off", 5 to "5s", 30 to "30s", 60 to "1m", 300 to "5m")
 
 @Composable
-private fun EditChannelDialog(c: ServerChannel, onDismiss: () -> Unit) {
+private fun EditChannelDialog(c: ServerChannel, nav: Navigator, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf(c.name) }
@@ -733,6 +756,9 @@ private fun EditChannelDialog(c: ServerChannel, onDismiss: () -> Unit) {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         slowmodes.forEach { (secs, label) -> ChunkyChip(label, slow == secs) { slow = secs } }
                     }
+                }
+                if (c.type == "text" || c.type == "announcement") {
+                    TextButton(onClick = { onDismiss(); nav.go(Screen.Webhooks(c.id)) }) { Text("🤖 Webhooks…", fontWeight = FontWeight.Bold) }
                 }
                 TextButton(onClick = { confirmDelete = true }) {
                     Text(if (c.type == "category") "Delete category" else "Delete channel", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)

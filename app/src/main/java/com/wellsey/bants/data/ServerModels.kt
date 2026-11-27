@@ -40,6 +40,10 @@ data class ServerChannel(
     val starterMessageId: Long? = null,
     /** Voice channels: who's in there right now. */
     val voiceMembers: List<VoiceMember> = emptyList(),
+    /** Forum posts (threads): how many messages, the first one, and when it started. */
+    val messageCount: Int = 0,
+    val firstMessage: ChannelMessage? = null,
+    val createdAt: Long = 0,
 )
 
 @Serializable
@@ -71,6 +75,12 @@ data class BantsServer(
     val me: ServerMe? = null,
     val unread: Boolean = false,
     val mentionCount: Int = 0,
+    /** Emojis that belong to the server: everyone in it can use them. */
+    val emojis: List<CustomEmoji> = emptyList(),
+    val rules: String = "",
+    val welcome: String = "",
+    val requireRules: Boolean = false,
+    val rulesAccepted: Boolean = true,
 )
 
 @Serializable
@@ -80,7 +90,37 @@ data class ChannelAuthor(
     val displayName: String,
     val avatar: String? = null,
     val nickname: String? = null,
+    /** Posted by a webhook (Unraid, a game server…), not a person. */
+    val bot: Boolean = false,
 )
+
+@Serializable
+data class ChannelPoll(
+    val question: String,
+    val options: List<String>,
+    val multi: Boolean = false,
+    val endsAt: Long? = null,
+    val votes: List<List<Long>> = emptyList(),
+)
+
+@Serializable
+data class ServerEvent(
+    val id: Long,
+    val serverId: Long,
+    val channelId: Long? = null,
+    val title: String,
+    val description: String = "",
+    val location: String = "",
+    val startsAt: Long,
+    val endsAt: Long? = null,
+    val createdBy: Long? = null,
+    val going: List<Long> = emptyList(),
+    val interested: List<Long> = emptyList(),
+    val myRsvp: String? = null,
+)
+
+@Serializable
+data class Webhook(val id: Long, val channelId: Long, val name: String, val url: String, val createdAt: Long = 0)
 
 @Serializable
 data class ChannelAttachment(
@@ -113,6 +153,7 @@ data class ChannelMessage(
     val attachments: List<ChannelAttachment> = emptyList(),
     /** Custom emojis used in the text or reactions, so anyone can draw them. */
     val emojis: List<CustomEmoji> = emptyList(),
+    val poll: ChannelPoll? = null,
     // Local-only state for messages still on their way to the server.
     @Transient val pending: Boolean = false,
     @Transient val failed: Boolean = false,

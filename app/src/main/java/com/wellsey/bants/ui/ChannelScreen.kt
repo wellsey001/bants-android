@@ -13,6 +13,7 @@ import kotlin.math.roundToInt
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.layout.offset
 import androidx.compose.material.icons.filled.Gif
+import androidx.compose.material.icons.filled.Poll
 import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Close
 import com.wellsey.bants.data.CustomEmoji
@@ -181,6 +182,12 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
         return
     }
+    if (channel.type == "forum") {
+        ForumScreen(channel, server, nav)
+        return
+    }
+    var polling by remember { mutableStateOf(false) }
+    var showRules by remember(server.id) { mutableStateOf(false) }
     val perms = channel.permissions
     val canSend = perms.has(Perm.SEND_MESSAGES)
     val myId = Bants.myId
@@ -253,6 +260,7 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
                             onEdit = { editing = it; replyingTo = null; field = TextFieldValue(plainBody(it.body, members), TextRange(plainBody(it.body, members).length)) },
                             onReactMore = { picking = it },
                             onProfile = { profileOf = it },
+                            onEvents = { nav.go(Screen.Events(server.id)) },
                             onThread = { msg ->
                                 scope.launch {
                                     runCatching { Servers.startThread(channelId, msg.body.take(40), msg.id) }
@@ -283,6 +291,16 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
 
         Surface(color = MaterialTheme.colorScheme.background) {
             Column(Modifier.navigationBarsPadding().imePadding()) {
+                if (!server.rulesAccepted) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(10.dp).chunky(RoundedCornerShape(14.dp), b.card, b.outline, shadow = 0.dp).padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("📜 Accept the rules to join in", color = b.onCard, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        ChunkyButton("Read rules", onClick = { showRules = true })
+                    }
+                    return@Column
+                }
                 if (!canSend) {
                     Row(
                         Modifier.fillMaxWidth().padding(10.dp).chunky(RoundedCornerShape(14.dp), b.card, b.outline, shadow = 0.dp).padding(14.dp),
@@ -356,8 +374,12 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
                     }
                 }
                 Row(Modifier.padding(8.dp), verticalAlignment = Alignment.Bottom) {
+                    if (editing == null && channel.type != "thread" && text.isEmpty() && pendingGif == null) {
+                        ChunkyIconButton(Icons.Default.Poll, "Make a poll", { polling = true }, size = 44.dp, shadow = 2.dp, modifier = Modifier.padding(bottom = 7.dp))
+                        Spacer(Modifier.width(6.dp))
+                    }
                     if (editing == null) {
-                        ChunkyIconButton(Icons.Default.EmojiEmotions, "Your emojis", { emojiSheet = true }, size = 44.dp, shadow = 2.dp, modifier = Modifier.padding(bottom = 7.dp))
+                        ChunkyIconButton(Icons.Default.EmojiEmotions, "Emojis", { emojiSheet = true }, size = 44.dp, shadow = 2.dp, modifier = Modifier.padding(bottom = 7.dp))
                         Spacer(Modifier.width(6.dp))
                         if (gifsOn) {
                             ChunkyIconButton(Icons.Default.Gif, "GIF", { gifSheet = true }, size = 44.dp, shadow = 2.dp, modifier = Modifier.padding(bottom = 7.dp))
@@ -395,8 +417,11 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
     }
 
     profileOf?.let { uid -> ProfileSheet(server.id, uid, nav) { profileOf = null } }
+    if (polling) PollDialog(channelId) { polling = false }
+    if (showRules && server.rules.isNotBlank()) RulesDialog(server) { showRules = false }
     if (gifSheet) GifSheet(onDismiss = { gifSheet = false }) { g -> gifSheet = false; pendingGif = g }
     if (emojiSheet) CustomEmojiSheet(
+        server = server.emojis,
         onDismiss = { emojiSheet = false },
         onManage = { emojiSheet = false; nav.go(Screen.Emojis) },
     ) { e ->
@@ -408,7 +433,7 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
         emojiSheet = false
     }
     picking?.let { m ->
-        EmojiReactionSheet(onDismiss = { picking = null }, custom = Emojis.mine.collectAsState().value) { emoji ->
+        EmojiReactionSheet(onDismiss = { picking = null }, custom = server.emojis + Emojis.mine.collectAsState().value) { emoji ->
             picking = null
             scope.launch { runCatching { Servers.toggleReaction(m, emoji) }.onFailure { toast(context, it.message) } }
         }
@@ -484,6 +509,7 @@ private fun ChannelMessageRow(
     onReactMore: (ChannelMessage) -> Unit,
     onThread: (ChannelMessage) -> Unit,
     onProfile: (Long) -> Unit = {},
+    onEvents: () -> Unit = {},
 ) {
     val b = LocalBants.current
     val context = LocalContext.current
@@ -496,7 +522,12 @@ private fun ChannelMessageRow(
     }
 
     // System lines: joins, pins, new threads
-    if (m.kind != "default") {
+    if (m.kind == "event") {
+        Text("${m.body} · see events", fontSize = 13.sp, color = b.muted, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.fillMaxWidth().clickable { onEvents() }.padding(horizontal = 12.dp, vertical = 6.dp))
+        return
+    }
+    if (m.kind != "default" && m.kind != "poll") {
         val who = m.author?.shownName() ?: "Someone"
         val line = when (m.kind) {
             "join" -> "👋 $who just landed. Say hi!"
@@ -549,7 +580,7 @@ private fun ChannelMessageRow(
                 .padding(start = 6.dp, end = 6.dp, top = if (grouped) 1.dp else 8.dp, bottom = 1.dp),
         ) {
             Box(Modifier.width(44.dp)) {
-                if (!grouped) Box(Modifier.clip(CircleShape).clickable(enabled = m.author != null) { m.author?.let { onProfile(it.id) } }) {
+                if (!grouped) Box(Modifier.clip(CircleShape).clickable(enabled = m.author != null && m.author.bot != true) { m.author?.let { onProfile(it.id) } }) {
                     Avatar(m.author?.displayName ?: "?", m.author?.avatar, size = 38.dp)
                 }
             }
@@ -577,12 +608,15 @@ private fun ChannelMessageRow(
                             modifier = Modifier.weight(1f, fill = false).clickable(enabled = m.author != null) { m.author?.let { onProfile(it.id) } },
                         )
                         if (m.author?.id == server.ownerId) Text(" 👑", fontSize = 13.sp)
+                        if (m.author?.bot == true) Text(" BOT ", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color.White,
+                            modifier = Modifier.padding(start = 4.dp).background(BantsPurple, RoundedCornerShape(4.dp)).padding(horizontal = 3.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(clockTime(m.createdAt), fontSize = 12.sp, color = b.muted)
                     }
                 }
-                if (m.body.isNotEmpty()) {
-                    val lookup = known + m.emojis.associateBy { it.id }
+                if (m.poll != null) PollCard(m)
+                else if (m.body.isNotEmpty()) {
+                    val lookup = known + server.emojis.associateBy { it.id } + m.emojis.associateBy { it.id }
                     val big = Emojis.onlyEmojis(m.body)
                     Text(
                         richBody(m.body, server, members, myId, myRoles, lookup),
