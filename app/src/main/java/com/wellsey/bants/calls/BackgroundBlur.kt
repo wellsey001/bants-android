@@ -160,7 +160,7 @@ class BackgroundBlur(strong: Boolean) : VideoProcessor {
                 cnt[i]++
             }
         }
-        for (i in sum.indices) sum[i] /= max(1, cnt[i])
+        for (i in sum.indices) sum[i] = sum[i] / max(1, cnt[i]).toFloat()
         val tmp = FloatArray(sum.size)
         repeat(3) {
             boxH(sum, tmp, sw, sh, 2)
