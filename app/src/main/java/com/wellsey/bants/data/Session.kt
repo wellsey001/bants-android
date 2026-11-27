@@ -27,6 +27,24 @@ class Session(context: Context) {
         get() = prefs.getString("videoQuality", "auto") ?: "auto"
         set(value) = prefs.edit().putString("videoQuality", value).apply()
 
+    /** Calls: background noise reduction, "off", "standard" or "strong". */
+    var callNoise: String
+        get() = prefs.getString("callNoise", "standard") ?: "standard"
+        set(value) = prefs.edit().putString("callNoise", value).apply()
+
+    var callEcho: Boolean
+        get() = prefs.getBoolean("callEcho", true)
+        set(value) = prefs.edit().putBoolean("callEcho", value).apply()
+
+    var callAutoGain: Boolean
+        get() = prefs.getBoolean("callAutoGain", true)
+        set(value) = prefs.edit().putBoolean("callAutoGain", value).apply()
+
+    /** Video calls: blur behind you, "off", "light" or "strong". */
+    var callBlur: String
+        get() = prefs.getString("callBlur", "off") ?: "off"
+        set(value) = prefs.edit().putString("callBlur", value).apply()
+
     /** Bants' own call ringtones, or false for the phone's ringtone. */
     var bantsRingtone: Boolean
         get() = prefs.getBoolean("bantsRingtone", true)

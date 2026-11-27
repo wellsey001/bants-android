@@ -30,6 +30,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.BlurOff
+import androidx.compose.material.icons.filled.BlurOn
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.Mic
@@ -240,6 +242,14 @@ private fun CallScreen(answerNow: Boolean, onDone: () -> Unit, onProximity: (Boo
                             size = 58.dp,
                         )
                         ChunkyIconButton(Icons.Default.Cameraswitch, "Flip camera", { CallManager.flipCamera() }, fill = Color.White, tint = BantsInk, size = 58.dp)
+                        ChunkyIconButton(
+                            if (c.blur) Icons.Default.BlurOn else Icons.Default.BlurOff,
+                            if (c.blur) "Background blur off" else "Blur background",
+                            { CallManager.toggleBlur() },
+                            fill = if (c.blur) BantsYellow else Color.White,
+                            tint = BantsInk,
+                            size = 58.dp,
+                        )
                     }
                 }
                 Spacer(Modifier.height(22.dp))

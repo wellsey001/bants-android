@@ -80,6 +80,8 @@ dependencies {
     implementation("androidx.emoji2:emoji2-emojipicker:1.4.0")
     // Sticker maker: cuts people and things out of photos, on the phone.
     implementation("com.google.android.gms:play-services-mlkit-subject-segmentation:16.0.0-beta1")
+    // Live background blur in video calls (runs on the phone).
+    implementation("com.google.mlkit:segmentation-selfie:16.0.0-beta6")
     // Location sharing.
     implementation("com.google.android.gms:play-services-location:21.3.0")
     // App lock (fingerprint / face / PIN).

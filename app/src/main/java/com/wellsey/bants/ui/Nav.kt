@@ -35,6 +35,7 @@ sealed interface Screen {
     data object Search : Screen
     data object Sounds : Screen
     data object Quality : Screen
+    data object CallSettings : Screen
     // Servers
     data class Server(val id: Long) : Screen
     data class Channel(val id: Long) : Screen
@@ -107,6 +108,7 @@ fun BantsRoot(openConversation: MutableStateFlow<Long?>) {
         Screen.Search -> SearchScreen(nav)
         Screen.Sounds -> SoundsScreen(nav)
         Screen.Quality -> QualityScreen(nav)
+        Screen.CallSettings -> CallSettingsScreen(nav)
         is Screen.Server -> key(screen.id) { ServerScreen(screen.id, nav) }
         is Screen.Channel -> key(screen.id) { ChannelScreen(screen.id, nav) }
         is Screen.ServerMembers -> key(screen.id) { ServerMembersScreen(screen.id, nav) }

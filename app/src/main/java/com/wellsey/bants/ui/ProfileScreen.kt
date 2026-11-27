@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.foundation.layout.Row
@@ -159,6 +160,14 @@ fun ProfileScreen(nav: Navigator) {
                 fill = LocalBants.current.card,
                 content = LocalBants.current.onCard,
                 icon = androidx.compose.material.icons.Icons.Default.MusicNote,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            ChunkyButton(
+                "Voice & video calls",
+                onClick = { nav.go(Screen.CallSettings) },
+                fill = LocalBants.current.card,
+                content = LocalBants.current.onCard,
+                icon = androidx.compose.material.icons.Icons.Default.Mic,
                 modifier = Modifier.fillMaxWidth(),
             )
             ChunkyButton(

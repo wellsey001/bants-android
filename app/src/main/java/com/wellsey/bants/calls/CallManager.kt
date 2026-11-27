@@ -72,6 +72,8 @@ data class CallUi(
     val callerName: String? = null,
     /** Everyone else in a group call right now. */
     val participants: List<CallPerson> = emptyList(),
+    /** Background blur is on for your camera. */
+    val blur: Boolean = false,
     /** Set when this "call" is a server voice channel you've dropped into. */
     val voiceChannelId: Long? = null,
 )
@@ -312,6 +314,28 @@ object CallManager {
         state.value = s.copy(cameraOn = on)
     }
 
+    /** Background blur on or off mid-call (and remembered for next time). */
+    fun toggleBlur() {
+        val s = state.value ?: return
+        val source = videoSource ?: return
+        val on = !s.blur
+        val level = if (on) Bants.session.callBlur.takeIf { it != "off" } ?: "light" else "off"
+        Bants.session.callBlur = level
+        if (on) {
+            val p = BackgroundBlur(strong = level == "strong")
+            source.setVideoProcessor(p)
+            blurProcessor?.dispose()
+            blurProcessor = p
+            runCatching { capturer?.changeCaptureFormat(640, 480, 24) }
+        } else {
+            source.setVideoProcessor(null)
+            blurProcessor?.dispose()
+            blurProcessor = null
+            runCatching { capturer?.changeCaptureFormat(1280, 720, 30) }
+        }
+        state.value = s.copy(blur = on)
+    }
+
     fun flipCamera() {
         val s = state.value ?: return
         capturer?.switchCamera(null)
@@ -452,13 +476,35 @@ object CallManager {
 
     // ───────────── WebRTC ─────────────
 
+    private var factoryKey: String? = null
+    private var initialized = false
+    private var blurProcessor: BackgroundBlur? = null
+    private val gate = NoiseGate()
+
     private fun ensureFactory(): PeerConnectionFactory {
-        factory?.let { return it }
-        PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions.builder(appContext).createInitializationOptions())
+        val sess = Bants.session
+        // The phone's own echo/noise filters are set when the audio module is made, so a
+        // settings change means a fresh one (only between calls, never mid-call).
+        val key = "${sess.callNoise}|${sess.callEcho}"
+        factory?.let { f ->
+            if (factoryKey == key || peers.isNotEmpty()) return f
+            runCatching { f.dispose() }
+            factory = null
+        }
+        if (!initialized) {
+            PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions.builder(appContext).createInitializationOptions())
+            initialized = true
+        }
         val adm = JavaAudioDeviceModule.builder(appContext)
-            .setUseHardwareAcousticEchoCanceler(true)
-            .setUseHardwareNoiseSuppressor(true)
+            .setUseHardwareAcousticEchoCanceler(sess.callEcho)
+            .setUseHardwareNoiseSuppressor(sess.callNoise != "off")
+            // Strong: also silence the mic between words (keyboards, clicks, the telly).
+            .setAudioBufferCallback { buffer, _, _, _, bytesRead, captureTimeNs ->
+                if (Bants.session.callNoise == "strong") gate.process(buffer, bytesRead)
+                captureTimeNs
+            }
             .createAudioDeviceModule()
+        factoryKey = key
         val f = PeerConnectionFactory.builder()
             .setAudioDeviceModule(adm)
             .setVideoEncoderFactory(DefaultVideoEncoderFactory(egl.eglBaseContext, true, true))
@@ -470,7 +516,17 @@ object CallManager {
 
     private fun startLocalMedia(video: Boolean) {
         val f = ensureFactory()
-        audioSource = f.createAudioSource(MediaConstraints())
+        val sess = Bants.session
+        val constraints = MediaConstraints().apply {
+            fun set(k: String, v: Boolean) = mandatory.add(MediaConstraints.KeyValuePair(k, v.toString()))
+            set("googEchoCancellation", sess.callEcho)
+            set("googAutoGainControl", sess.callAutoGain)
+            set("googNoiseSuppression", sess.callNoise != "off")
+            set("googHighpassFilter", sess.callNoise != "off")
+            set("googTypingNoiseDetection", sess.callNoise == "strong")
+        }
+        gate.reset()
+        audioSource = f.createAudioSource(constraints)
         audioTrack = f.createAudioTrack("bants-audio", audioSource)
         if (!video) return
         val enumerator = Camera2Enumerator(appContext)
@@ -479,7 +535,15 @@ object CallManager {
         val helper = SurfaceTextureHelper.create("BantsCamera", egl.eglBaseContext)
         val source = f.createVideoSource(false)
         cam.initialize(helper, appContext, source.capturerObserver)
-        runCatching { cam.startCapture(1280, 720, 30) }
+        val blur = sess.callBlur
+        if (blur != "off") {
+            blurProcessor = BackgroundBlur(strong = blur == "strong").also { source.setVideoProcessor(it) }
+            // Blurring every frame is hard work, so use a smaller picture while it's on.
+            runCatching { cam.startCapture(640, 480, 24) }
+        } else {
+            runCatching { cam.startCapture(1280, 720, 30) }
+        }
+        state.value = state.value?.copy(blur = blur != "off")
         capturer = cam
         textureHelper = helper
         videoSource = source
@@ -714,6 +778,8 @@ object CallManager {
         peers.clear()
         iceCache = null
         runCatching { capturer?.stopCapture() }
+        blurProcessor?.dispose()
+        blurProcessor = null
         capturer?.dispose()
         capturer = null
         localVideo.value?.dispose()
