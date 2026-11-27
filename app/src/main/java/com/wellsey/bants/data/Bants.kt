@@ -120,6 +120,7 @@ object Bants {
         }
 
         scope.launch { realtime.events.collect { handle(it) } }
+        Servers.init(appContext)
         scope.launch { realtime.connected.collect { if (it) kickOutbox() } }
         scope.launch {
             merge(me, conversations, contacts, requests, messages).collect { if (loggedIn.value) scheduleSave() }

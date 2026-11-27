@@ -127,6 +127,7 @@ fun HomeScreen(nav: Navigator) {
                         Avatar(me?.displayName ?: "?", me?.avatar, size = 44.dp)
                     }
                 }
+                HomeSwitch()
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Filter.values().forEach { f ->
                         val label = if (f == Filter.Unread && unreadChats > 0) "Unread $unreadChats" else f.label

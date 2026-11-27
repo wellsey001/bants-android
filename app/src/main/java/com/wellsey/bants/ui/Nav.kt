@@ -16,6 +16,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import com.wellsey.bants.data.Bants
+import com.wellsey.bants.data.HomeMode
+import com.wellsey.bants.data.Servers
 import kotlinx.coroutines.flow.MutableStateFlow
 
 sealed interface Screen {
@@ -33,6 +35,13 @@ sealed interface Screen {
     data object Search : Screen
     data object Sounds : Screen
     data object Quality : Screen
+    // Servers
+    data class Server(val id: Long) : Screen
+    data class Channel(val id: Long) : Screen
+    data class ServerMembers(val id: Long) : Screen
+    data class ServerSettings(val id: Long) : Screen
+    data class ServerRoles(val id: Long) : Screen
+    data class RoleEdit(val serverId: Long, val roleId: Long) : Screen
 }
 
 /** A tiny back stack: enough for this app without pulling in a navigation library. */
@@ -80,7 +89,11 @@ fun BantsRoot(openConversation: MutableStateFlow<Long?>) {
     BackHandler(enabled = nav.stack.size > 1) { nav.back() }
 
     when (val screen = nav.current) {
-        Screen.Home -> HomeScreen(nav)
+        Screen.Home -> {
+            val mode by Servers.mode.collectAsState()
+            val serversOn by Servers.available.collectAsState()
+            if (serversOn && mode == HomeMode.Servers) ServersHomeScreen(nav) else HomeScreen(nav)
+        }
         is Screen.Chat -> key(screen.id, screen.jumpTo) { ChatScreen(screen.id, nav, screen.jumpTo) }
         Screen.NewChat -> NewChatScreen(nav)
         Screen.AddContact -> AddContactScreen(nav)
@@ -94,6 +107,12 @@ fun BantsRoot(openConversation: MutableStateFlow<Long?>) {
         Screen.Search -> SearchScreen(nav)
         Screen.Sounds -> SoundsScreen(nav)
         Screen.Quality -> QualityScreen(nav)
+        is Screen.Server -> key(screen.id) { ServerScreen(screen.id, nav) }
+        is Screen.Channel -> key(screen.id) { ChannelScreen(screen.id, nav) }
+        is Screen.ServerMembers -> key(screen.id) { ServerMembersScreen(screen.id, nav) }
+        is Screen.ServerSettings -> key(screen.id) { ServerSettingsScreen(screen.id, nav) }
+        is Screen.ServerRoles -> key(screen.id) { ServerRolesScreen(screen.id, nav) }
+        is Screen.RoleEdit -> key(screen.serverId, screen.roleId) { RoleEditScreen(screen.serverId, screen.roleId, nav) }
     }
 }
 

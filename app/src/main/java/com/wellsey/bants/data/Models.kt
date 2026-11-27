@@ -165,6 +165,8 @@ data class ServerInfo(
     val registration: String = "open",
     val maxUploadBytes: Long = 0,
     val gifs: Boolean = false,
+    /** bants-server supports servers (Discord-style communities). */
+    val servers: Boolean = false,
 )
 
 @Serializable
