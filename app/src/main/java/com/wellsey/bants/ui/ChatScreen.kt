@@ -673,7 +673,7 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
     }
 
     reactingTo?.let { m ->
-        EmojiReactionSheet(onDismiss = { reactingTo = null }) { emoji ->
+        EmojiReactionSheet(onDismiss = { reactingTo = null }, custom = com.wellsey.bants.data.Emojis.mine.collectAsState().value) { emoji ->
             reactingTo = null
             react(m, emoji)
         }
@@ -716,6 +716,15 @@ fun ChatScreen(convId: Long, nav: Navigator, jumpTo: Long? = null) {
                 Bants.sendSticker(convId, media, replyingTo?.id)
                 replyingTo = null
             },
+            onEmoji = { e ->
+                // Your own emojis go in as :name: and become the real thing when sent.
+                pickerOpen = false
+                val ins = ":${e.name}: "
+                val at = field.selection.end.coerceIn(0, field.text.length)
+                field = TextFieldValue(field.text.substring(0, at) + ins + field.text.substring(at), androidx.compose.ui.text.TextRange(at + ins.length))
+                com.wellsey.bants.data.Emojis.used(e.token)
+            },
+            onManageEmojis = { pickerOpen = false; nav.go(Screen.Emojis) },
         )
     }
 
@@ -958,7 +967,7 @@ private fun MessageBubble(
                                         onReact(emoji)
                                     },
                                 contentAlignment = Alignment.Center,
-                            ) { Text(emoji, fontSize = 24.sp) }
+                            ) { EmojiGlyph(emoji, size = 28.dp, fontSize = 24.sp) }
                         }
                         Box(
                             Modifier
@@ -1041,13 +1050,10 @@ private fun MessageBubble(
                         Modifier
                             .chunkyClickable(RoundedCornerShape(50), if (reactedByMe) BantsYellow else b.card, b.outline, shadow = 0.dp, border = 2.dp) { onReact(r.emoji) },
                     ) {
-                        Text(
-                            if (r.userIds.size > 1) "${r.emoji} ${r.userIds.size}" else r.emoji,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = if (reactedByMe) BantsInk else b.onCard,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        )
+                        Row(Modifier.padding(horizontal = 8.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                            EmojiGlyph(r.emoji, size = 18.dp, fontSize = 14.sp, lookup = m.emojis.associateBy { it.id })
+                            if (r.userIds.size > 1) Text(" ${r.userIds.size}", fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = if (reactedByMe) BantsInk else b.onCard)
+                        }
                     }
                 }
             }

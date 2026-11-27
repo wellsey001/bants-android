@@ -594,6 +594,36 @@ object Servers {
     suspend fun deleteWebhook(h: Webhook) { api.delete<JsonObject>("/api/webhooks/${h.id}") }
     suspend fun newWebhookUrl(h: Webhook): Webhook = api.patch("/api/webhooks/${h.id}", buildJsonObject { put("newToken", true) })
 
+    /** Your notifications for one channel: "all", "mentions", "none", or null for the server's default. */
+    suspend fun setNotify(channelId: Long, level: String?) {
+        api.raw("PUT", "/api/channels/$channelId/notify", api.body(buildJsonObject { if (level == null) put("level", JsonNull) else put("level", level) }))
+        updateChannel(channelId) { it.copy(notify = level) }
+    }
+
+    @kotlinx.serialization.Serializable
+    data class NotifyInfo(val message: ChannelMessage, val channel: NotifyChannel, val server: NotifyServer, val mentioned: Boolean = false)
+    @kotlinx.serialization.Serializable
+    data class NotifyChannel(val id: Long, val name: String, val type: String = "text", val parentName: String? = null)
+    @kotlinx.serialization.Serializable
+    data class NotifyServer(val id: Long, val name: String, val icon: String? = null)
+
+    /** For a push: fetch the message and where it is from our own server. */
+    suspend fun fetchForNotification(messageId: Long): NotifyInfo? = runCatching { api.get<NotifyInfo>("/api/channel-messages/$messageId") }.getOrNull()
+
+    suspend fun searchAll(text: String): List<ChannelMessage> = api.get("/api/servers-search?q=${android.net.Uri.encode(text.trim())}")
+    suspend fun search(serverId: Long, text: String): List<ChannelMessage> = api.get("/api/servers/$serverId/search?q=${android.net.Uri.encode(text.trim())}")
+
+    /** Sends a recorded voice message into a channel. */
+    suspend fun sendVoice(channelId: Long, file: java.io.File) {
+        val id = Bants.uploadBytes(file.readBytes(), "audio/mp4", "voice-message.m4a")
+        val m = api.post<ChannelMessage>("/api/channels/$channelId/messages", buildJsonObject {
+            put("attachments", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(id))))
+            put("clientId", UUID.randomUUID().toString())
+        })
+        putMessages(channelId, listOf(m))
+        file.delete()
+    }
+
     /** The colour of someone's most senior coloured role, for their name. */
     fun nameColour(serverId: Long, userId: Long): Long? {
         val s = servers.value[serverId] ?: return null

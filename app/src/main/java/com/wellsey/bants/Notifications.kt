@@ -95,6 +95,40 @@ object Notifications {
         NotificationManagerCompat.from(context).notify(m.conversationId.toInt(), notification)
     }
 
+    /** A message in a server channel. Grouped per channel, like Discord. */
+    @SuppressLint("MissingPermission")
+    fun showChannelMessage(context: Context, info: com.wellsey.bants.data.Servers.NotifyInfo) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+        val m = info.message
+        val who = m.author?.let { it.nickname?.takeIf { n -> n.isNotBlank() } ?: it.displayName } ?: "Someone"
+        val where = if (info.channel.parentName != null) "${info.channel.parentName} › ${info.channel.name}" else "#${info.channel.name}"
+        val preview = when {
+            m.poll != null -> "📊 ${m.poll.question}"
+            m.attachments.any { it.mime.startsWith("audio/") } -> "🎤 Voice message"
+            m.attachments.any { it.mime.startsWith("image/") } -> "📷 Photo" + (m.body.takeIf { it.isNotBlank() }?.let { " · ${com.wellsey.bants.data.Emojis.plain(it)}" } ?: "")
+            else -> com.wellsey.bants.data.Emojis.plain(m.body).replace(Regex("<@&?\\d+>"), "@someone").replace(Regex("<#\\d+>"), "#channel")
+        }
+        val text = "$who: $preview"
+        val intent = Intent(context, MainActivity::class.java)
+            .putExtra(MainActivity.EXTRA_CHANNEL, info.channel.id)
+            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        val pending = PendingIntent.getActivity(context, 500_000 + info.channel.id.toInt(), intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val notification = NotificationCompat.Builder(context, if (info.mentioned) MENTIONS else CHANNEL)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(0xFF5B4BFF.toInt())
+            .setContentTitle("${info.server.name} · $where")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(pending)
+            .build()
+        NotificationManagerCompat.from(context).notify(500_000 + info.channel.id.toInt(), notification)
+    }
+
     /** Builds a notification from a Firebase push (used when the app isn't running). */
     @SuppressLint("MissingPermission")
     fun showPush(context: Context, data: Map<String, String>) {

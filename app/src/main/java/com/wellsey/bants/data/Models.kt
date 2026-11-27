@@ -36,6 +36,8 @@ data class Message(
     val editedAt: Long? = null,
     val deleted: Boolean = false,
     val reactions: List<Reaction> = emptyList(),
+    /** Custom emojis used in the text or reactions, so they can be drawn. */
+    val emojis: List<CustomEmoji> = emptyList(),
     val mediaInfo: MediaInfo? = null,
     val meta: MessageMeta? = null,
     val expiresAt: Long? = null,

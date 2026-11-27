@@ -14,6 +14,7 @@ import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.layout.offset
 import androidx.compose.material.icons.filled.Gif
 import androidx.compose.material.icons.filled.Poll
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Close
 import com.wellsey.bants.data.CustomEmoji
@@ -187,6 +188,23 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
         return
     }
     var polling by remember { mutableStateOf(false) }
+    // Voice messages: tap the mic to start, tap again to send.
+    val recorder = remember { VoiceRecorder(context) }
+    var recordingSince by remember { mutableStateOf<Long?>(null) }
+    fun toggleRecording() {
+        if (recordingSince == null) {
+            if (recorder.start()) { recordingSince = System.currentTimeMillis(); com.wellsey.bants.Haptics.tap() }
+            else toast(context, "Couldn't use the microphone")
+        } else {
+            recordingSince = null
+            val f = recorder.stop() ?: return
+            scope.launch { runCatching { Servers.sendVoice(channelId, f) }.onFailure { toast(context, it.message) } }
+        }
+    }
+    val micPermission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) toggleRecording() else toast(context, "Bants needs the microphone for voice messages")
+    }
+    DisposableEffect(Unit) { onDispose { recorder.cancel() } }
     var showRules by remember(server.id) { mutableStateOf(false) }
     val perms = channel.permissions
     val canSend = perms.has(Perm.SEND_MESSAGES)
@@ -373,6 +391,17 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
                         }
                     }
                 }
+                recordingSince?.let { since ->
+                    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+                    LaunchedEffect(since) { while (true) { now = System.currentTimeMillis(); kotlinx.coroutines.delay(250) } }
+                    Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        ChunkyIconButton(Icons.Default.Close, "Cancel", { recorder.cancel(); recordingSince = null }, size = 48.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text("🔴 Recording ${(now - since) / 60000}:${"%02d".format(((now - since) / 1000) % 60)}", fontWeight = FontWeight.ExtraBold, color = b.onCard, modifier = Modifier.weight(1f))
+                        ChunkyIconButton(Icons.AutoMirrored.Filled.Send, "Send voice message", { toggleRecording() }, fill = BantsPurple, tint = Color.White, size = 52.dp, shadow = 4.dp)
+                    }
+                    return@Column
+                }
                 Row(Modifier.padding(8.dp), verticalAlignment = Alignment.Bottom) {
                     if (editing == null && channel.type != "thread" && text.isEmpty() && pendingGif == null) {
                         ChunkyIconButton(Icons.Default.Poll, "Make a poll", { polling = true }, size = 44.dp, shadow = 2.dp, modifier = Modifier.padding(bottom = 7.dp))
@@ -400,7 +429,17 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
                         modifier = Modifier.weight(1f),
                     )
                     Spacer(Modifier.width(6.dp))
-                    ChunkyIconButton(
+                    if (text.isEmpty() && pendingGif == null && editing == null && perms.has(Perm.ATTACH_FILES)) {
+                        ChunkyIconButton(
+                            Icons.Default.Mic, "Record a voice message",
+                            {
+                                if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) toggleRecording()
+                                else micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+                            },
+                            fill = BantsPurple, tint = Color.White, size = 52.dp, shadow = 4.dp,
+                            modifier = Modifier.padding(bottom = 3.dp),
+                        )
+                    } else ChunkyIconButton(
                         if (editing != null) Icons.Default.Done else Icons.AutoMirrored.Filled.Send,
                         "Send",
                         { send() },
@@ -628,7 +667,9 @@ private fun ChannelMessageRow(
                 }
                 if (m.editedAt != null) Text("(edited)", fontSize = 11.sp, color = b.muted)
                 m.attachments.forEach { a ->
-                    if (a.mime.startsWith("image/")) {
+                    if (a.mime.startsWith("audio/")) {
+                        ChannelVoice(a)
+                    } else if (a.mime.startsWith("image/")) {
                         AsyncImage(
                             model = mediaUrl(a.id),
                             contentDescription = a.filename,

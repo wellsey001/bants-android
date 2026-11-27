@@ -467,7 +467,7 @@ object Bants {
     )
 
     fun sendText(convId: Long, text: String, replyTo: Long? = null) {
-        val body = text.trim()
+        val body = Emojis.expand(text.trim())
         if (body.isEmpty()) return
         enqueue(newItem(convId, "text", replyTo).copy(body = body))
     }
@@ -686,7 +686,7 @@ object Bants {
     }
 
     suspend fun editMessage(m: Message, body: String) {
-        val updated = call { api.patch<Message>("/api/messages/${m.id}", buildJsonObject { put("body", body.trim()) }) }
+        val updated = call { api.patch<Message>("/api/messages/${m.id}", buildJsonObject { put("body", Emojis.expand(body.trim())) }) }
         putMessages(updated.conversationId, listOf(updated))
     }
 

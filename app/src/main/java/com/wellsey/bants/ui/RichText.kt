@@ -26,6 +26,9 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.foundation.text.appendInlineContent
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -36,7 +39,7 @@ import com.wellsey.bants.data.Conversation
 import com.wellsey.bants.data.LinkPreview
 import com.wellsey.bants.data.Message
 
-private val TOKEN = Regex("""(@[A-Za-z0-9_.]{3,24})|(https?://[^\s<>"']+[^\s<>"'.,!?;:)\]])""")
+private val TOKEN = Regex("""(@[A-Za-z0-9_.]{3,24})|(https?://[^\s<>"']+[^\s<>"'.,!?;:)\]])|<(a?):([A-Za-z0-9_]{2,32}):(\d{1,12})>""")
 
 fun openUrl(context: Context, url: String) {
     try {
@@ -51,13 +54,19 @@ fun openUrl(context: Context, url: String) {
 fun MessageText(m: Message, conv: Conversation, myId: Long, ink: Color) {
     val context = LocalContext.current
     val usernames = remember(conv.members) { conv.members.associate { it.user.username.lowercase() to it.user.id } }
-    val annotated: AnnotatedString = remember(m.body, usernames, ink) {
+    val known by com.wellsey.bants.data.Emojis.known.collectAsState()
+    val lookup = remember(m.emojis, known) { known + m.emojis.associateBy { it.id } }
+    val annotated: AnnotatedString = remember(m.body, usernames, ink, lookup) {
         buildAnnotatedString {
             var last = 0
             for (match in TOKEN.findAll(m.body)) {
                 append(m.body.substring(last, match.range.first))
                 val token = match.value
-                if (token.startsWith("@")) {
+                val emojiId = match.groupValues[5].toLongOrNull()
+                if (emojiId != null) {
+                    // Custom emoji: a picture if we know it, :name: if it's gone.
+                    if (lookup.containsKey(emojiId)) appendInlineContent("emoji:$emojiId", ":${match.groupValues[4]}:") else append(":${match.groupValues[4]}:")
+                } else if (token.startsWith("@")) {
                     val id = usernames[token.drop(1).lowercase()]
                     if (id != null) {
                         pushStyle(
@@ -84,9 +93,10 @@ fun MessageText(m: Message, conv: Conversation, myId: Long, ink: Color) {
             append(m.body.substring(last))
         }
     }
-    val style = TextStyle(color = ink, fontSize = 16.sp, lineHeight = 22.sp)
+    val big = com.wellsey.bants.data.Emojis.onlyEmojis(m.body)
+    val style = TextStyle(color = ink, fontSize = 16.sp, lineHeight = if (big) 48.sp else 22.sp)
     if (annotated.getStringAnnotations("url", 0, annotated.length).isEmpty()) {
-        Text(annotated, style = style)
+        Text(annotated, style = style, inlineContent = customEmojiInline(m.body, lookup, big))
     } else {
         ClickableText(annotated, style = style) { offset ->
             annotated.getStringAnnotations("url", offset, offset).firstOrNull()?.let { openUrl(context, it.item) }

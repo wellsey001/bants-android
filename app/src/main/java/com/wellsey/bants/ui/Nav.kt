@@ -19,6 +19,7 @@ import com.wellsey.bants.data.Bants
 import com.wellsey.bants.data.HomeMode
 import com.wellsey.bants.data.Servers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 
 sealed interface Screen {
     data object Home : Screen
@@ -93,7 +94,11 @@ fun BantsRoot(openConversation: MutableStateFlow<Long?>) {
     LaunchedEffect(openChannel) {
         val id = openChannel ?: return@LaunchedEffect
         Servers.openChannelRequest.value = null
-        val c = Servers.channel(id) ?: return@LaunchedEffect
+        // Opened from a notification, the servers may still be loading.
+        val c = Servers.channel(id) ?: kotlinx.coroutines.withTimeoutOrNull(8_000) {
+            Servers.servers.first { Servers.channel(id) != null }
+            Servers.channel(id)
+        } ?: return@LaunchedEffect
         Servers.setMode(HomeMode.Servers)
         nav.home()
         nav.go(Screen.Server(c.serverId))

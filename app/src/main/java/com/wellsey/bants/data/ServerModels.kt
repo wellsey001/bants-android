@@ -43,6 +43,8 @@ data class ServerChannel(
     /** Forum posts (threads): how many messages, the first one, and when it started. */
     val messageCount: Int = 0,
     val firstMessage: ChannelMessage? = null,
+    /** Your notifications here: "all", "mentions", "none", or null for the server's default. */
+    val notify: String? = null,
     val createdAt: Long = 0,
 )
 

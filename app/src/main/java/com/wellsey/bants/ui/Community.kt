@@ -523,3 +523,134 @@ fun WebhooksScreen(channelId: Long, nav: Navigator) {
         }
     }
 }
+
+// ───────────────────────── channel options: notifications ─────────────────────────
+
+@Composable
+fun ChannelOptionsDialog(c: ServerChannel, canManage: Boolean, onEdit: () -> Unit, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var level by remember { mutableStateOf(c.notify) }
+    fun set(l: String?) {
+        level = l
+        scope.launch { runCatching { Servers.setNotify(c.id, l) }.onFailure { toast(context, it.message) } }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (c.type == "category") c.name else "#${c.name}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (c.type != "category") {
+                    Text("NOTIFICATIONS", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = LocalBants.current.muted)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        ChunkyChip("Server default", level == null) { set(null) }
+                        ChunkyChip("All messages", level == "all") { set("all") }
+                        ChunkyChip("Only @mentions", level == "mentions") { set("mentions") }
+                        ChunkyChip("Nothing", level == "none") { set("none") }
+                    }
+                    Text(
+                        when (level) {
+                            "all" -> "You'll get a notification for every message here."
+                            "mentions" -> "Only when someone @mentions you or a role you're in."
+                            "none" -> "No notifications from this channel at all."
+                            else -> "Every message, unless you've muted the server (then just @mentions)."
+                        },
+                        fontSize = 13.sp, color = LocalBants.current.muted,
+                    )
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+        dismissButton = { if (canManage) TextButton(onClick = onEdit) { Text("Edit channel") } },
+    )
+}
+
+// ───────────────────────── search ─────────────────────────
+
+@Composable
+fun SearchSheet(s: BantsServer, nav: Navigator, onDismiss: () -> Unit) {
+    var query by remember { mutableStateOf("") }
+    var everywhere by remember { mutableStateOf(false) }
+    var results by remember { mutableStateOf<List<ChannelMessage>?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val servers by Servers.servers.collectAsState()
+    val members by Servers.members.collectAsState()
+    LaunchedEffect(query, everywhere) {
+        if (query.trim().length < 2) { results = null; return@LaunchedEffect }
+        kotlinx.coroutines.delay(300)
+        runCatching { if (everywhere) Servers.searchAll(query) else Servers.search(s.id, query) }
+            .onSuccess { results = it; error = null }.onFailure { error = it.message }
+    }
+    val b = LocalBants.current
+    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss, sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = b.card) {
+        Column(Modifier.fillMaxWidth().fillMaxHeight(0.85f).padding(horizontal = 16.dp)) {
+            OutlinedTextField(query, { query = it.take(100) }, label = { Text("Search messages") }, singleLine = true, shape = FieldShape, colors = chunkyFieldColors(), modifier = Modifier.fillMaxWidth())
+            Row(Modifier.padding(vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ChunkyChip("In ${s.name}", !everywhere) { everywhere = false }
+                ChunkyChip("All my servers", everywhere) { everywhere = true }
+            }
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 30.dp)) {
+                val list = results
+                when {
+                    error != null -> item { Text(error!!, color = b.muted) }
+                    query.trim().length < 2 -> item { Text("Type at least two letters.", color = b.muted) }
+                    list == null -> item { Text("Searching…", color = b.muted) }
+                    list.isEmpty() -> item { Text("Nothing found.", color = b.muted) }
+                }
+                items(list.orEmpty(), key = { it.id }) { m ->
+                    val srv = servers[m.serverId]
+                    val ch = srv?.channels?.firstOrNull { it.id == m.channelId } ?: Servers.threads.value[m.channelId]
+                    val who = m.author?.let { a -> members[m.serverId]?.firstOrNull { it.user.id == a.id }?.shownName() ?: a.nickname ?: a.displayName } ?: "Someone"
+                    Column(
+                        Modifier.fillMaxWidth().chunkyClickable(RoundedCornerShape(12.dp), b.card, b.outline, shadow = 2.dp) {
+                            onDismiss()
+                            Servers.openChannelRequest.value = m.channelId
+                        }.padding(10.dp),
+                    ) {
+                        Text((if (everywhere) "${srv?.name ?: "Server"} · " else "") + (ch?.let { "#${it.name}" } ?: "a thread") + " · ${whenText(m.createdAt)}", fontSize = 12.sp, color = b.muted)
+                        Text(who, fontWeight = FontWeight.ExtraBold, color = b.onCard)
+                        Text(com.wellsey.bants.data.Emojis.plain(m.body), maxLines = 4, overflow = TextOverflow.Ellipsis, color = b.onCard)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ───────────────────────── voice messages in channels ─────────────────────────
+
+/** A voice message attachment: play/pause with a progress bar. Reuses the chat voice-note player. */
+@Composable
+fun ChannelVoice(a: com.wellsey.bants.data.ChannelAttachment) {
+    val b = LocalBants.current
+    val playing by AudioPlayback.playingKey.collectAsState()
+    val progress by AudioPlayback.progress.collectAsState()
+    var file by remember(a.id) { mutableStateOf<java.io.File?>(null) }
+    val scope = rememberCoroutineScope()
+    val key = "ch-${a.id}"
+    val isPlaying = playing == key
+    Row(
+        Modifier.padding(top = 6.dp).width(240.dp).chunky(RoundedCornerShape(50), b.card, b.outline, shadow = 2.dp).padding(horizontal = 6.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ChunkyIconButton(
+            if (isPlaying) androidx.compose.material.icons.Icons.Default.Pause else androidx.compose.material.icons.Icons.Default.PlayArrow,
+            if (isPlaying) "Stop" else "Play voice message",
+            {
+                scope.launch {
+                    val f = file ?: runCatching { Bants.mediaFile(a.id, a.filename.ifBlank { "voice.m4a" }) }.getOrNull()?.also { file = it }
+                    if (f != null) AudioPlayback.toggle(key, f)
+                }
+            },
+            fill = BantsPurple, tint = Color.White, size = 36.dp,
+        )
+        Spacer(Modifier.width(8.dp))
+        androidx.compose.material3.LinearProgressIndicator(
+            progress = { if (isPlaying) progress else 0f },
+            color = BantsPurple, trackColor = b.outline.copy(alpha = 0.2f),
+            modifier = Modifier.weight(1f).padding(end = 10.dp),
+        )
+        Text("🎤", fontSize = 14.sp)
+        Spacer(Modifier.width(6.dp))
+    }
+}

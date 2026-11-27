@@ -65,7 +65,13 @@ import kotlinx.coroutines.launch
 
 /** Bottom sheet with GIF search and your stickers. */
 @Composable
-fun GifStickerSheet(onDismiss: () -> Unit, onGif: (Gif) -> Unit, onSticker: (String) -> Unit) {
+fun GifStickerSheet(
+    onDismiss: () -> Unit,
+    onGif: (Gif) -> Unit,
+    onSticker: (String) -> Unit,
+    onEmoji: ((com.wellsey.bants.data.CustomEmoji) -> Unit)? = null,
+    onManageEmojis: () -> Unit = {},
+) {
     var tab by remember { mutableIntStateOf(0) }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -76,9 +82,14 @@ fun GifStickerSheet(onDismiss: () -> Unit, onGif: (Gif) -> Unit, onSticker: (Str
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ChunkyChip("GIFs", tab == 0) { tab = 0 }
                 ChunkyChip("Stickers", tab == 1) { tab = 1 }
+                if (onEmoji != null) ChunkyChip("Your emojis", tab == 2) { tab = 2 }
             }
             Box(Modifier.fillMaxWidth().height(460.dp).padding(top = 14.dp)) {
-                if (tab == 0) GifTab(onGif) else StickerTab(onSticker)
+                when {
+                    tab == 0 -> GifTab(onGif)
+                    tab == 1 -> StickerTab(onSticker)
+                    onEmoji != null -> EmojiTab(onEmoji, onManageEmojis)
+                }
             }
         }
     }
@@ -323,4 +334,22 @@ private fun StickerMakerDialog(uri: android.net.Uri, onDismiss: () -> Unit) {
         },
         dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss, enabled = !saving) { Text("Cancel") } },
     )
+}
+
+@Composable
+private fun EmojiTab(onPick: (com.wellsey.bants.data.CustomEmoji) -> Unit, onManage: () -> Unit) {
+    val mine by com.wellsey.bants.data.Emojis.mine.collectAsState()
+    Column(Modifier.fillMaxSize()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Your own emojis, still or animated.", color = LocalBants.current.muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
+            androidx.compose.material3.TextButton(onClick = onManage) { Text(if (mine.isEmpty()) "Add some" else "Manage") }
+        }
+        if (mine.isEmpty()) EmptyNote("no emojis yet", "Upload pictures or GIFs and use them in chats and servers.")
+        else androidx.compose.foundation.lazy.grid.LazyVerticalGrid(androidx.compose.foundation.lazy.grid.GridCells.Adaptive(56.dp), Modifier.fillMaxSize()) {
+            items(mine.size) { i ->
+                val e = mine[i]
+                AsyncImage(model = mediaUrl(e.media), contentDescription = ":${e.name}:", modifier = Modifier.size(56.dp).bouncyClickable { onPick(e) }.padding(8.dp))
+            }
+        }
+    }
 }

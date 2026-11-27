@@ -1,5 +1,7 @@
 package com.wellsey.bants.ui
 
+import androidx.compose.material.icons.filled.Search
+
 import androidx.compose.material.icons.filled.EditNote
 
 import androidx.compose.material.icons.filled.AddReaction
@@ -345,6 +347,8 @@ fun ServerScreen(serverId: Long, nav: Navigator) {
     var creatingIn by remember { mutableStateOf<Long?>(null) }
     var creating by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<ServerChannel?>(null) }
+    var options by remember { mutableStateOf<ServerChannel?>(null) }
+    var searching by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<String?>(null) }
     val collapsed = remember { mutableStateListOf<Long>() }
     val allMembers by Servers.members.collectAsState()
@@ -366,6 +370,7 @@ fun ServerScreen(serverId: Long, nav: Navigator) {
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         ChunkyTopBar(s.name, nav) {
             if (perms.has(Perm.CREATE_INVITE)) ChunkyIconButton(Icons.Default.Link, "Invite people", { inviting = true })
+            ChunkyIconButton(Icons.Default.Search, "Search", { searching = true })
             ChunkyIconButton(Icons.Default.Groups, "Members", { nav.go(Screen.ServerMembers(serverId)) })
             Box {
                 ChunkyIconButton(Icons.Default.MoreVert, "Server options", { menu = true })
@@ -408,7 +413,7 @@ fun ServerScreen(serverId: Long, nav: Navigator) {
                 item { Text(s.description, color = b.muted, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)) }
             }
             items(top, key = { it.id }) { c ->
-                ChannelRow(c, allMembers[serverId].orEmpty(), onProfile = { profileOf = it }, onLongClick = if (perms.has(Perm.MANAGE_CHANNELS)) ({ editing = c }) else null) { open(c) }
+                ChannelRow(c, allMembers[serverId].orEmpty(), onProfile = { profileOf = it }, onLongClick = if (c.type != "category" || perms.has(Perm.MANAGE_CHANNELS)) ({ options = c }) else null) { open(c) }
             }
             categories.forEach { cat ->
                 val kids = s.channels.filter { it.parentId == cat.id }.sortedBy { it.position }
@@ -436,7 +441,7 @@ fun ServerScreen(serverId: Long, nav: Navigator) {
                     }
                 }
                 if (!shut) items(kids, key = { it.id }) { c ->
-                    ChannelRow(c, allMembers[serverId].orEmpty(), onProfile = { profileOf = it }, onLongClick = if (perms.has(Perm.MANAGE_CHANNELS)) ({ editing = c }) else null) { open(c) }
+                    ChannelRow(c, allMembers[serverId].orEmpty(), onProfile = { profileOf = it }, onLongClick = if (c.type != "category" || perms.has(Perm.MANAGE_CHANNELS)) ({ options = c }) else null) { open(c) }
                 }
             }
         }
@@ -452,6 +457,10 @@ fun ServerScreen(serverId: Long, nav: Navigator) {
     if (editingRules) RulesEditor(s) { editingRules = false }
     if (creating) CreateChannelDialog(s, creatingIn) { creating = false }
     editing?.let { c -> EditChannelDialog(c, nav) { editing = null } }
+    options?.let { c ->
+        ChannelOptionsDialog(c, canManage = perms.has(Perm.MANAGE_CHANNELS), onEdit = { options = null; editing = c }) { options = null }
+    }
+    if (searching) SearchSheet(s, nav) { searching = false }
     if (confirm == "leave") ConfirmDialog("Leave ${s.name}?", "You'll need a new invite to get back in.", "Leave", onDismiss = { confirm = null }) {
         confirm = null
         scope.launch {

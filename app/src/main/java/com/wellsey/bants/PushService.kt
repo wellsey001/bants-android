@@ -29,6 +29,14 @@ class PushService : FirebaseMessagingService() {
                 if (!Bants.inForeground) Notifications.showMissedCall(applicationContext, data)
                 return
             }
+            "channel_message" -> {
+                // A server message: like chats, only ids come through Google, so fetch it from our server.
+                if (Bants.inForeground && Bants.connected.value) return
+                val id = data["messageId"]?.toLongOrNull() ?: return
+                val info = kotlinx.coroutines.runBlocking { kotlinx.coroutines.withTimeoutOrNull(8_000) { com.wellsey.bants.data.Servers.fetchForNotification(id) } }
+                if (info != null) Notifications.showChannelMessage(applicationContext, info)
+                return
+            }
         }
         // If the app is open and connected, the live connection has already handled it.
         if (Bants.inForeground && Bants.connected.value) return

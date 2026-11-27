@@ -42,9 +42,13 @@ class MainActivity : FragmentActivity() {
     private fun handleIntent(intent: Intent?) {
         val id = intent?.getLongExtra(EXTRA_CONVERSATION, -1L) ?: -1L
         if (id > 0) openConversation.value = id
+        // A server notification: open that channel.
+        val channel = intent?.getLongExtra(EXTRA_CHANNEL, -1L) ?: -1L
+        if (channel > 0) com.wellsey.bants.data.Servers.openChannelRequest.value = channel
     }
 
     companion object {
         const val EXTRA_CONVERSATION = "conversationId"
+        const val EXTRA_CHANNEL = "channelId"
     }
 }
