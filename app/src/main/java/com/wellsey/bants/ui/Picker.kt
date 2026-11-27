@@ -84,6 +84,18 @@ fun GifStickerSheet(onDismiss: () -> Unit, onGif: (Gif) -> Unit, onSticker: (Str
     }
 }
 
+/** Just GIF search, for servers. */
+@Composable
+fun GifSheet(onDismiss: () -> Unit, onGif: (Gif) -> Unit) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.background,
+    ) {
+        Box(Modifier.fillMaxWidth().height(500.dp).padding(horizontal = 16.dp).padding(bottom = 24.dp)) { GifTab(onGif) }
+    }
+}
+
 @Composable
 private fun GifTab(onGif: (Gif) -> Unit) {
     val available by Bants.gifsAvailable.collectAsState()

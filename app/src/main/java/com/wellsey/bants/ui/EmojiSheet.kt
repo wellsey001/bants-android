@@ -22,7 +22,7 @@ import androidx.emoji2.emojipicker.EmojiPickerView
 
 /** Every emoji, by category, with skin tones and your recent picks at the top. */
 @Composable
-fun EmojiReactionSheet(onDismiss: () -> Unit, onPick: (String) -> Unit) {
+fun EmojiReactionSheet(onDismiss: () -> Unit, custom: List<com.wellsey.bants.data.CustomEmoji> = emptyList(), onPick: (String) -> Unit) {
     val b = LocalBants.current
     val dark = androidx.compose.foundation.isSystemInDarkTheme()
     ModalBottomSheet(
@@ -39,6 +39,20 @@ fun EmojiReactionSheet(onDismiss: () -> Unit, onPick: (String) -> Unit) {
                 color = b.onCard,
                 modifier = Modifier.padding(start = 20.dp, bottom = 8.dp),
             )
+            if (custom.isNotEmpty()) {
+                Text("YOUR EMOJIS", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = b.muted, modifier = Modifier.padding(start = 20.dp))
+                androidx.compose.foundation.lazy.LazyRow(
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                ) {
+                    items(custom.size) { i ->
+                        val e = custom[i]
+                        coil.compose.AsyncImage(
+                            model = mediaUrl(e.media), contentDescription = ":${e.name}:",
+                            modifier = Modifier.size(48.dp).bouncyClickable { onPick(e.token) }.padding(6.dp),
+                        )
+                    }
+                }
+            }
             AndroidView(
                 factory = { context ->
                     val themed = android.view.ContextThemeWrapper(

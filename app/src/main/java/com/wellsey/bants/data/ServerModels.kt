@@ -111,6 +111,8 @@ data class ChannelMessage(
     val mentionsEveryone: Boolean = false,
     val reactions: List<ChannelReaction> = emptyList(),
     val attachments: List<ChannelAttachment> = emptyList(),
+    /** Custom emojis used in the text or reactions, so anyone can draw them. */
+    val emojis: List<CustomEmoji> = emptyList(),
     // Local-only state for messages still on their way to the server.
     @Transient val pending: Boolean = false,
     @Transient val failed: Boolean = false,

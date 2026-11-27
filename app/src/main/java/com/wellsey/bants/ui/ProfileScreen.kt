@@ -157,6 +157,13 @@ fun ProfileScreen(nav: Navigator) {
                 )
             }
             ChunkyButton(
+                "Your emojis",
+                onClick = { nav.go(Screen.Emojis) },
+                fill = LocalBants.current.card,
+                content = LocalBants.current.onCard,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            ChunkyButton(
                 "Sounds & vibration",
                 onClick = { nav.go(Screen.Sounds) },
                 fill = LocalBants.current.card,

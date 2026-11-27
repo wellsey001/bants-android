@@ -3,6 +3,7 @@ package com.wellsey.bants.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.EmojiEmotions
 import com.wellsey.bants.data.shownAvatar
 
 import android.Manifest
@@ -362,6 +363,7 @@ fun ServerScreen(serverId: Long, nav: Navigator) {
                         DropdownMenuItem(text = { Text("Server settings") }, leadingIcon = { Icon(Icons.Default.Settings, null) }, onClick = { menu = false; nav.go(Screen.ServerSettings(serverId)) })
                     }
                     DropdownMenuItem(text = { Text("Edit server profile") }, leadingIcon = { Icon(Icons.Default.Badge, null) }, onClick = { menu = false; nav.go(Screen.ServerProfile(serverId)) })
+                    DropdownMenuItem(text = { Text("Your emojis") }, leadingIcon = { Icon(Icons.Default.EmojiEmotions, null) }, onClick = { menu = false; nav.go(Screen.Emojis) })
                     DropdownMenuItem(text = { Text("Mark as read") }, leadingIcon = { Icon(Icons.Default.DoneAll, null) }, onClick = {
                         menu = false
                         scope.launch { runCatching { Servers.markServerRead(serverId) }.onFailure { toast(context, it.message) } }

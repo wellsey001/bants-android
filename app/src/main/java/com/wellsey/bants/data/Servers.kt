@@ -188,7 +188,7 @@ object Servers {
 
     fun send(channelId: Long, text: String, replyTo: Long? = null) {
         val ch = channel(channelId) ?: return
-        val body = withMentions(ch.serverId, text.trim())
+        val body = Emojis.expand(withMentions(ch.serverId, text.trim()))
         if (body.isEmpty()) return
         val me = Bants.me.value ?: return
         val clientId = UUID.randomUUID().toString()
@@ -222,6 +222,19 @@ object Servers {
             }
             Bants.notices.tryEmit(e.message ?: "Couldn't send that")
         }
+    }
+
+    /** A GIF from the picker, with an optional message and reply. */
+    suspend fun sendGif(channelId: Long, gif: Gif, text: String, replyTo: Long?) {
+        val ch = channel(channelId) ?: return
+        val sent = api.post<ChannelMessage>("/api/channels/$channelId/gif", buildJsonObject {
+            put("url", gif.url)
+            put("body", Emojis.expand(withMentions(ch.serverId, text.trim())))
+            put("clientId", UUID.randomUUID().toString())
+            replyTo?.let { put("replyTo", it) }
+        })
+        putMessages(channelId, listOf(sent))
+        if (Bants.inForeground) Sounds.play(Sounds.Kind.Sent, Bants.session.soundsOn)
     }
 
     fun retry(m: ChannelMessage) {
@@ -258,7 +271,7 @@ object Servers {
     suspend fun markServerRead(serverId: Long) = upsert(api.post<BantsServer>("/api/servers/$serverId/read"))
 
     suspend fun edit(m: ChannelMessage, body: String) {
-        val updated = api.patch<ChannelMessage>("/api/channel-messages/${m.id}", buildJsonObject { put("body", withMentions(m.serverId ?: 0, body.trim())) })
+        val updated = api.patch<ChannelMessage>("/api/channel-messages/${m.id}", buildJsonObject { put("body", Emojis.expand(withMentions(m.serverId ?: 0, body.trim()))) })
         putMessages(m.channelId, listOf(updated))
     }
 
@@ -276,7 +289,10 @@ object Servers {
         val path = "/api/channel-messages/${m.id}/reactions/${java.net.URLEncoder.encode(emoji, "UTF-8").replace("+", "%20")}"
         if (mine) api.delete<JsonObject>(path) else api.raw("PUT", path, api.body(JsonObject(emptyMap())))
         applyReaction(m.channelId, m.id, Bants.myId, emoji, !mine)
-        if (!mine) Bants.session.recentReactions = (listOf(emoji) + Bants.session.recentReactions.filter { it != emoji })
+        if (!mine) {
+            if (Emojis.parse(emoji) != null) Emojis.used(emoji)
+            else Bants.session.recentReactions = (listOf(emoji) + Bants.session.recentReactions.filter { it != emoji })
+        }
     }
 
     private fun applyReaction(channelId: Long, messageId: Long, userId: Long, emoji: String, added: Boolean) {

@@ -121,6 +121,7 @@ object Bants {
 
         scope.launch { realtime.events.collect { handle(it) } }
         Servers.init(appContext)
+        Emojis.init(appContext)
         scope.launch { realtime.connected.collect { if (it) kickOutbox() } }
         scope.launch {
             merge(me, conversations, contacts, requests, messages).collect { if (loggedIn.value) scheduleSave() }
@@ -327,6 +328,10 @@ object Bants {
     }
 
     /** Uploads a picture (shrunk to [maxSide]) and returns its media id. */
+    /** Uploads raw bytes (already prepared) and returns the media id. */
+    suspend fun uploadBytes(bytes: ByteArray, mime: String, filename: String): String =
+        upload(bytes.toRequestBody(mime.toMediaType()), filename).id
+
     suspend fun uploadImage(uri: Uri, maxSide: Int = 1600): String {
         val (bytes, mime) = withContext(Dispatchers.IO) { compressImage(uri, maxSide = maxSide) }
         return upload(bytes.toRequestBody(mime.toMediaType()), "image.jpg").id

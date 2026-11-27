@@ -2,6 +2,22 @@
 
 package com.wellsey.bants.ui
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
+import androidx.compose.foundation.layout.offset
+import androidx.compose.material.icons.filled.Gif
+import androidx.compose.material.icons.filled.EmojiEmotions
+import androidx.compose.material.icons.filled.Close
+import com.wellsey.bants.data.CustomEmoji
+import com.wellsey.bants.data.Emojis
+import com.wellsey.bants.data.Gif
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
@@ -126,6 +142,10 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
     var editing by remember { mutableStateOf<ChannelMessage?>(null) }
     var picking by remember { mutableStateOf<ChannelMessage?>(null) }
     var profileOf by remember { mutableStateOf<Long?>(null) }
+    var pendingGif by remember(channelId) { mutableStateOf<Gif?>(null) }
+    var gifSheet by remember { mutableStateOf(false) }
+    var emojiSheet by remember { mutableStateOf(false) }
+    val gifsOn by Bants.gifsAvailable.collectAsState()
     var threadsOpen by remember { mutableStateOf(false) }
     var pinsOpen by remember { mutableStateOf(false) }
     var loadingOlder by remember { mutableStateOf(false) }
@@ -168,6 +188,16 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
 
     fun send() {
         val e = editing
+        val gif = pendingGif
+        if (gif != null && e == null) {
+            val words = text
+            val reply = replyingTo?.id
+            pendingGif = null
+            replyingTo = null
+            field = TextFieldValue("")
+            scope.launch { runCatching { Servers.sendGif(channelId, gif, words, reply) }.onFailure { toast(context, it.message) } }
+            return
+        }
         if (e != null) {
             scope.launch { runCatching { Servers.edit(e, text) }.onFailure { toast(context, it.message) } }
             editing = null
@@ -277,6 +307,22 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
                 } else if (r != null) {
                     ComposeBanner(Icons.AutoMirrored.Filled.Reply, "Replying to ${r.author?.shownName() ?: "message"}", plainBody(r.body, members)) { replyingTo = null }
                 }
+                pendingGif?.let { g ->
+                    Box(Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp)) {
+                        AsyncImage(
+                            model = g.preview.ifBlank { g.url },
+                            contentDescription = "Selected GIF",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.height(120.dp).widthIn(min = 90.dp, max = 220.dp)
+                                .chunky(RoundedCornerShape(14.dp), b.card, b.outline, shadow = 3.dp),
+                        )
+                        ChunkyIconButton(
+                            Icons.Default.Close, "Remove GIF", { pendingGif = null },
+                            fill = Color.White, tint = BantsInk, size = 30.dp,
+                            modifier = Modifier.align(Alignment.TopEnd).offset(x = 8.dp, y = (-8).dp),
+                        )
+                    }
+                }
                 // @mention suggestions
                 val cursor = field.selection.end.coerceIn(0, text.length)
                 val query = Regex("(^|\\s)@([A-Za-z0-9_.]{0,24})$").find(text.substring(0, cursor))?.groupValues?.get(2)
@@ -309,13 +355,21 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
                     }
                 }
                 Row(Modifier.padding(8.dp), verticalAlignment = Alignment.Bottom) {
+                    if (editing == null) {
+                        ChunkyIconButton(Icons.Default.EmojiEmotions, "Your emojis", { emojiSheet = true }, size = 44.dp, shadow = 2.dp, modifier = Modifier.padding(bottom = 7.dp))
+                        Spacer(Modifier.width(6.dp))
+                        if (gifsOn) {
+                            ChunkyIconButton(Icons.Default.Gif, "GIF", { gifSheet = true }, size = 44.dp, shadow = 2.dp, modifier = Modifier.padding(bottom = 7.dp))
+                            Spacer(Modifier.width(6.dp))
+                        }
+                    }
                     OutlinedTextField(
                         value = field,
                         onValueChange = {
                             field = it
                             if (it.text.isNotEmpty() && editing == null) Servers.sendTyping(channelId)
                         },
-                        placeholder = { Text(if (channel.type == "thread") "Reply in thread…" else if (channel.type == "voice") "Message ${channel.name}" else "Message #${channel.name}") },
+                        placeholder = { Text(if (pendingGif != null && editing == null) "Add a message, or just send it…" else if (channel.type == "thread") "Reply in thread…" else if (channel.type == "voice") "Message ${channel.name}" else "Message #${channel.name}") },
                         maxLines = 5,
                         shape = FieldShape,
                         colors = chunkyFieldColors(),
@@ -331,7 +385,7 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
                         tint = Color.White,
                         size = 52.dp,
                         shadow = 4.dp,
-                        enabled = text.isNotBlank(),
+                        enabled = text.isNotBlank() || (pendingGif != null && editing == null),
                         modifier = Modifier.padding(bottom = 3.dp),
                     )
                 }
@@ -340,8 +394,20 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
     }
 
     profileOf?.let { uid -> ProfileSheet(server.id, uid, nav) { profileOf = null } }
+    if (gifSheet) GifSheet(onDismiss = { gifSheet = false }) { g -> gifSheet = false; pendingGif = g }
+    if (emojiSheet) CustomEmojiSheet(
+        onDismiss = { emojiSheet = false },
+        onManage = { emojiSheet = false; nav.go(Screen.Emojis) },
+    ) { e ->
+        // Goes in as :name: and becomes the real thing when it's sent.
+        val ins = ":${e.name}: "
+        val at = field.selection.end.coerceIn(0, text.length)
+        field = TextFieldValue(text.substring(0, at) + ins + text.substring(at), TextRange(at + ins.length))
+        Emojis.used(e.token)
+        emojiSheet = false
+    }
     picking?.let { m ->
-        EmojiReactionSheet(onDismiss = { picking = null }) { emoji ->
+        EmojiReactionSheet(onDismiss = { picking = null }, custom = Emojis.mine.collectAsState().value) { emoji ->
             picking = null
             scope.launch { runCatching { Servers.toggleReaction(m, emoji) }.onFailure { toast(context, it.message) } }
         }
@@ -370,17 +436,24 @@ private fun ComposeBanner(icon: androidx.compose.ui.graphics.vector.ImageVector,
 
 /** Swaps mention tokens for names, for editing and previews. */
 private fun plainBody(body: String, members: List<ServerMember>): String =
-    Regex("<@(\\d+)>").replace(body) { m ->
+    Regex("<@(\\d+)>").replace(Emojis.plain(body)) { m ->
         val who = members.firstOrNull { it.user.id == m.groupValues[1].toLong() }
         if (who != null) "@${who.user.username}" else "@someone"
     }
 
 /** Message text with mentions, role pings and channel links picked out. */
-private fun richBody(body: String, server: BantsServer, members: List<ServerMember>, myId: Long, myRoles: List<Long>): AnnotatedString = buildAnnotatedString {
-    val token = Regex("<@(\\d+)>|<@&(\\d+)>|<#(\\d+)>|@everyone|@here")
+private fun richBody(body: String, server: BantsServer, members: List<ServerMember>, myId: Long, myRoles: List<Long>, emojis: Map<Long, CustomEmoji> = emptyMap()): AnnotatedString = buildAnnotatedString {
+    val token = Regex("<@(\\d+)>|<@&(\\d+)>|<#(\\d+)>|@everyone|@here|<(a?):([A-Za-z0-9_]{2,32}):(\\d{1,12})>")
     var last = 0
     for (m in token.findAll(body)) {
         append(body.substring(last, m.range.first))
+        val emojiId = m.groupValues[6].toLongOrNull()
+        if (emojiId != null) {
+            // Custom emoji: a picture if we know it, :name: if it's been deleted.
+            if (emojis.containsKey(emojiId)) appendInlineContent("emoji:$emojiId", ":${m.groupValues[5]}:") else append(":${m.groupValues[5]}:")
+            last = m.range.last + 1
+            continue
+        }
         val userId = m.groupValues[1].toLongOrNull()
         val roleId = m.groupValues[2].toLongOrNull()
         val channelId = m.groupValues[3].toLongOrNull()
@@ -437,11 +510,40 @@ private fun ChannelMessageRow(
     val mine = m.author?.id == myId
     val mentionsMe = m.mentionsEveryone || m.body.contains("<@$myId>")
     val myRoles = server.me?.roleIds.orEmpty()
+    val known by Emojis.known.collectAsState()
+    val canInteract = !m.pending && !m.failed
+    // Swipe right to reply, like in chats.
+    var dragX by remember { mutableFloatStateOf(0f) }
+    val shownX by animateFloatAsState(dragX, label = "swipe")
+    val canReply = perms.has(Perm.SEND_MESSAGES)
     Box {
+        if (shownX > 20f) {
+            Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = null, tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp).graphicsLayer { alpha = (shownX / 100f).coerceIn(0f, 1f) })
+        }
         Row(
             Modifier
                 .fillMaxWidth()
-                .bouncyClickable(squash = 0.01f, onLongClick = { if (!m.pending) menu = true }, onClick = {})
+                .offset { IntOffset(shownX.roundToInt(), 0) }
+                .draggable(
+                    orientation = Orientation.Horizontal,
+                    enabled = canInteract && canReply,
+                    state = rememberDraggableState { delta -> dragX = (dragX + delta).coerceIn(0f, 160f) },
+                    onDragStopped = {
+                        if (dragX > 100f) { com.wellsey.bants.Haptics.tap(); onReply(m) }
+                        dragX = 0f
+                    },
+                )
+                .bouncyClickable(
+                    squash = 0.01f,
+                    onLongClick = { if (!m.pending) menu = true },
+                    // Double-tap to like, same as in chats.
+                    onDoubleClick = if (canInteract) ({
+                        com.wellsey.bants.Haptics.tap()
+                        scope.launch { runCatching { Servers.toggleReaction(m, "❤️") }.onFailure { toast(context, it.message) } }
+                    }) else null,
+                    onClick = {},
+                )
                 .background(if (mentionsMe && !mine) BantsYellow.copy(alpha = 0.18f) else Color.Transparent, RoundedCornerShape(12.dp))
                 .padding(start = 6.dp, end = 6.dp, top = if (grouped) 1.dp else 8.dp, bottom = 1.dp),
         ) {
@@ -479,10 +581,14 @@ private fun ChannelMessageRow(
                     }
                 }
                 if (m.body.isNotEmpty()) {
+                    val lookup = known + m.emojis.associateBy { it.id }
+                    val big = Emojis.onlyEmojis(m.body)
                     Text(
-                        richBody(m.body, server, members, myId, myRoles),
+                        richBody(m.body, server, members, myId, myRoles, lookup),
                         fontSize = 15.sp,
+                        lineHeight = if (big) 48.sp else androidx.compose.ui.unit.TextUnit.Unspecified,
                         color = if (m.pending) b.muted else b.onCard,
+                        inlineContent = customEmojiInline(m.body, lookup, big),
                     )
                 }
                 if (m.editedAt != null) Text("(edited)", fontSize = 11.sp, color = b.muted)
@@ -511,7 +617,7 @@ private fun ChannelMessageRow(
                                     .padding(horizontal = 8.dp, vertical = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text(r.emoji, fontSize = 14.sp)
+                                EmojiGlyph(r.emoji, size = 18.dp, fontSize = 14.sp, lookup = m.emojis.associateBy { it.id })
                                 Spacer(Modifier.width(4.dp))
                                 Text("${r.userIds.size}", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = if (iReacted) BantsInk else b.onCard)
                             }
@@ -533,8 +639,11 @@ private fun ChannelMessageRow(
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             Row(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                (Bants.session.recentReactions + QuickReactions).distinct().take(6).forEach { e ->
-                    Text(e, fontSize = 24.sp, modifier = Modifier.bouncyClickable { act { Servers.toggleReaction(m, e) } }.padding(6.dp))
+                val mineIds = Emojis.mine.value.map { it.id }.toSet()
+                (Emojis.recent.filter { Emojis.parse(it)?.first in mineIds }.take(2) + Bants.session.recentReactions + QuickReactions).distinct().take(6).forEach { e ->
+                    Box(Modifier.bouncyClickable { act { Servers.toggleReaction(m, e) } }.padding(6.dp), contentAlignment = Alignment.Center) {
+                        EmojiGlyph(e, size = 28.dp, fontSize = 24.sp)
+                    }
                 }
             }
             HorizontalDivider()

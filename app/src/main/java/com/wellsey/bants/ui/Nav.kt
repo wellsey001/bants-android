@@ -44,6 +44,7 @@ sealed interface Screen {
     data class ServerRoles(val id: Long) : Screen
     data class RoleEdit(val serverId: Long, val roleId: Long) : Screen
     data class ServerProfile(val id: Long) : Screen
+    data object Emojis : Screen
 }
 
 /** A tiny back stack: enough for this app without pulling in a navigation library. */
@@ -125,6 +126,7 @@ fun BantsRoot(openConversation: MutableStateFlow<Long?>) {
         is Screen.Channel -> key(screen.id) { ChannelScreen(screen.id, nav) }
         is Screen.ServerMembers -> key(screen.id) { ServerMembersScreen(screen.id, nav) }
         is Screen.ServerProfile -> key(screen.id) { ServerProfileScreen(screen.id, nav) }
+        Screen.Emojis -> EmojisScreen(nav)
         is Screen.ServerSettings -> key(screen.id) { ServerSettingsScreen(screen.id, nav) }
         is Screen.ServerRoles -> key(screen.id) { ServerRolesScreen(screen.id, nav) }
         is Screen.RoleEdit -> key(screen.serverId, screen.roleId) { RoleEditScreen(screen.serverId, screen.roleId, nav) }
