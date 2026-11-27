@@ -708,11 +708,34 @@ object CallManager {
         factoryKey = key
         val f = PeerConnectionFactory.builder()
             .setAudioDeviceModule(adm)
-            .setVideoEncoderFactory(DefaultVideoEncoderFactory(egl.eglBaseContext, true, true))
-            .setVideoDecoderFactory(DefaultVideoDecoderFactory(egl.eglBaseContext))
+            // No H.264 High profile: some phones send it in a way other phones can't decode (black video).
+            .setVideoEncoderFactory(DefaultVideoEncoderFactory(egl.eglBaseContext, false, false))
+            .setVideoDecoderFactory(SafeDecoderFactory(egl.eglBaseContext))
             .createPeerConnectionFactory()
         factory = f
         return f
+    }
+
+    /**
+     * VP8 first for every video slot. It's what every phone and the desktop app can always decode,
+     * so a phone with a fussy hardware codec can't leave the other side looking at a black tile.
+     */
+    private fun preferVp8(conn: PeerConnection) {
+        val f = factory ?: return
+        val caps = runCatching { f.getRtpReceiverCapabilities(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO).codecs }.getOrNull() ?: return
+        val rank = { c: org.webrtc.RtpCapabilities.CodecCapability ->
+            when (c.name.uppercase()) {
+                "VP8" -> 0
+                "VP9" -> 1
+                "H264" -> 2
+                "AV1" -> 3
+                else -> 4 // rtx, red, ulpfec: keep them, after the real codecs
+            }
+        }
+        val ordered = caps.sortedBy(rank)
+        conn.transceivers.filter { it.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO }.forEach { t ->
+            runCatching { t.setCodecPreferences(ordered) }
+        }
     }
 
     private fun startLocalMedia(video: Boolean) {
@@ -808,6 +831,7 @@ object CallManager {
         val p = peers[userId] ?: return
         val conn = p.pc ?: return
         if (state.value?.voiceChannelId != null) voiceSlots(p, offering = true)
+        preferVp8(conn)
         val offer = conn.awaitCreate(true, constraints())
             ?: return if (state.value?.group == true) closePeer(userId) else end("Couldn't start the call", notify = false)
         conn.awaitSetLocal(offer)
@@ -831,6 +855,7 @@ object CallManager {
                 onRemoteDescription(p)
                 val voice = state.value?.voiceChannelId != null
                 if (voice) voiceSlots(p, offering = false)
+                preferVp8(conn)
                 val answer = conn.awaitCreate(false, constraints()) ?: return@launch
                 conn.awaitSetLocal(answer)
                 sendSignal(p.userId, buildJsonObject {
@@ -1061,4 +1086,21 @@ private suspend fun awaitSet(block: (SdpObserver) -> Unit): Boolean = withContex
             override fun onSetFailure(error: String?) = cont.resume(false)
         })
     }
+}
+
+/**
+ * Decodes VP8 and VP9 in software (libvpx), which works the same on every phone, and leaves
+ * H.264 to the phone's hardware. Some hardware VP8 decoders show nothing but black.
+ */
+private class SafeDecoderFactory(egl: org.webrtc.EglBase.Context) : org.webrtc.VideoDecoderFactory {
+    private val hardware = DefaultVideoDecoderFactory(egl)
+    private val software = org.webrtc.SoftwareVideoDecoderFactory()
+
+    override fun createDecoder(info: org.webrtc.VideoCodecInfo): org.webrtc.VideoDecoder? =
+        when (info.name.uppercase()) {
+            "VP8", "VP9" -> software.createDecoder(info) ?: hardware.createDecoder(info)
+            else -> hardware.createDecoder(info)
+        }
+
+    override fun getSupportedCodecs(): Array<org.webrtc.VideoCodecInfo> = hardware.supportedCodecs
 }
