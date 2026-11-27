@@ -8,6 +8,17 @@ import android.media.projection.MediaProjectionManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.key
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -118,7 +129,40 @@ fun VoiceCallScreen(c: CallUi, status: String, onOpenChat: () -> Unit) {
             add(StageTile("u${p.id}", p.name, p.avatar, if (f?.video == true) cams[p.id] else null, screen = false, mine = false, muted = f?.muted == true))
         }
     }
-    val big = screenTiles.firstOrNull { it.key == focus } ?: screenTiles.firstOrNull { !it.mine } ?: screenTiles.firstOrNull()
+    // Everything on the stage: screen shares first, then people. Like Discord, tap any tile to focus it.
+    val tiles = screenTiles + people
+    // Someone else going live gets focused automatically, until you pick something else.
+    var autoFocused by remember { mutableStateOf<String?>(null) }
+    val liveKey = screenTiles.firstOrNull { !it.mine }?.key
+    LaunchedEffect(liveKey) { if (liveKey != null && liveKey != autoFocused) { focus = liveKey; autoFocused = liveKey } }
+    // If whoever was focused leaves or stops sharing, go back to the grid.
+    val focused = tiles.firstOrNull { it.key == focus }
+    var more by remember { mutableStateOf(false) }
+
+    @Composable
+    fun Tile(t: StageTile, modifier: Modifier, small: Boolean = false) {
+        key(t.key) {
+            Box(
+                modifier
+                    .chunky(RoundedCornerShape(if (small) 12.dp else 16.dp), if (t.track != null) Color.Black else Color(0xFF2A2833), if (t.key == focus && small) BantsYellow else BantsInk, shadow = 0.dp, border = 2.dp)
+                    .clickable { focus = if (focus == t.key) null else t.key },
+                contentAlignment = Alignment.Center,
+            ) {
+                if (t.track != null) {
+                    // Cameras fill their tile (cropped, like Discord); screens are shown whole.
+                    VideoTile(t.track, mirror = t.mine && !t.screen && c.frontCamera, fit = t.screen, modifier = Modifier.fillMaxSize().padding(2.dp))
+                } else {
+                    Avatar(t.name, t.avatar, size = if (small) 40.dp else if (tiles.size <= 2) 96.dp else 64.dp)
+                }
+                if (small) {
+                    Text(t.name, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.align(Alignment.BottomStart).padding(5.dp).background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(6.dp)).padding(horizontal = 5.dp, vertical = 1.dp))
+                } else {
+                    TileLabel(t, Modifier.align(Alignment.BottomStart))
+                }
+            }
+        }
+    }
 
     Column(Modifier.fillMaxSize().background(Color(0xFF111015)).statusBarsPadding().navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -130,66 +174,102 @@ fun VoiceCallScreen(c: CallUi, status: String, onOpenChat: () -> Unit) {
             ChunkyIconButton(Icons.AutoMirrored.Filled.Chat, "Open the voice channel's chat", onOpenChat, fill = Color.White, tint = BantsInk, size = 46.dp)
         }
 
-        // Screen shares
-        if (big != null) {
-            Box(
-                Modifier.fillMaxWidth().weight(1.3f).padding(horizontal = 10.dp)
-                    .chunky(RoundedCornerShape(16.dp), Color.Black, BantsInk, shadow = 0.dp, border = 2.dp),
-            ) {
-                VideoTile(big.track!!, mirror = false, fit = true, modifier = Modifier.fillMaxSize().padding(2.dp))
-                TileLabel(big, Modifier.align(Alignment.BottomStart))
-            }
-            if (screenTiles.size > 1) {
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    screenTiles.forEach { t -> ChunkyChip(t.name, t.key == big.key) { focus = t.key } }
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-        }
-
-        // People
-        val columns = if (people.size <= 1) 1 else 2
-        Column(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            people.chunked(columns).forEach { row ->
-                Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    row.forEach { t ->
-                        Box(
-                            Modifier.weight(1f).fillMaxHeight()
-                                .chunky(RoundedCornerShape(16.dp), if (t.track != null) Color.Black else Color.White.copy(alpha = 0.10f), BantsInk, shadow = 0.dp, border = 2.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            if (t.track != null) VideoTile(t.track, mirror = t.mine && c.frontCamera, fit = false, modifier = Modifier.fillMaxSize().padding(2.dp))
-                            else Avatar(t.name, t.avatar, size = if (people.size <= 2) 96.dp else 64.dp)
-                            TileLabel(t, Modifier.align(Alignment.BottomStart))
+        BoxWithConstraints(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 10.dp)) {
+            val portrait = maxHeight > maxWidth
+            val gap = 8.dp
+            when {
+                // One tile big, everyone else in a strip underneath (or down the side in landscape).
+                focused != null && tiles.size > 1 -> {
+                    val rest = tiles.filter { it.key != focused.key }
+                    if (portrait) {
+                        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(gap)) {
+                            Tile(focused, Modifier.fillMaxWidth().weight(1f))
+                            Row(Modifier.fillMaxWidth().height(118.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                                rest.forEach { Tile(it, Modifier.width(96.dp).fillMaxHeight(), small = true) }
+                            }
+                        }
+                    } else {
+                        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                            Tile(focused, Modifier.weight(1f).fillMaxHeight())
+                            Column(Modifier.width(150.dp).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(gap)) {
+                                rest.forEach { Tile(it, Modifier.fillMaxWidth().height(96.dp), small = true) }
+                            }
                         }
                     }
-                    if (row.size < columns) Spacer(Modifier.weight(1f))
+                }
+                tiles.size == 1 -> Tile(tiles[0], Modifier.fillMaxSize())
+                // Two people: one above the other in portrait, side by side in landscape.
+                tiles.size == 2 -> if (portrait) {
+                    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(gap)) {
+                        tiles.forEach { Tile(it, Modifier.fillMaxWidth().weight(1f)) }
+                    }
+                } else {
+                    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                        tiles.forEach { Tile(it, Modifier.weight(1f).fillMaxHeight()) }
+                    }
+                }
+                // Up to four (six in landscape): an even grid that fills the space.
+                tiles.size <= (if (portrait) 4 else 6) -> {
+                    val cols = if (portrait) 2 else 3
+                    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(gap)) {
+                        tiles.chunked(cols).forEach { row ->
+                            Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                                row.forEach { Tile(it, Modifier.weight(1f).fillMaxHeight()) }
+                                repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
+                            }
+                        }
+                    }
+                }
+                // Loads of people: a scrolling grid of fixed-shape tiles.
+                else -> {
+                    val cols = if (portrait) 2 else 4
+                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(gap)) {
+                        tiles.chunked(cols).forEach { row ->
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                                row.forEach { Tile(it, Modifier.weight(1f).aspectRatio(if (portrait) 0.8f else 16f / 9f)) }
+                                repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        // Controls
+        // Controls: the everyday ones on the bar, camera extras under ⋯ so nothing falls off the edge.
         Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            val sz = 50.dp
             ChunkyIconButton(if (c.muted) Icons.Default.MicOff else Icons.Default.Mic, if (c.muted) "Unmute" else "Mute", { CallManager.toggleMute() },
-                fill = if (c.muted) BantsYellow else Color.White, tint = BantsInk, size = 52.dp)
-            ChunkyIconButton(if (c.speaker) Icons.Default.VolumeUp else Icons.Default.VolumeDown, if (c.speaker) "Speaker off" else "Speaker on", { CallManager.toggleSpeaker() },
-                fill = if (c.speaker) BantsYellow else Color.White, tint = BantsInk, size = 52.dp)
+                fill = if (c.muted) BantsYellow else Color.White, tint = BantsInk, size = sz)
             ChunkyIconButton(if (c.cameraOn) Icons.Default.Videocam else Icons.Default.VideocamOff, if (c.cameraOn) "Camera off" else "Camera on", {
                 if (c.cameraOn || has(context, Manifest.permission.CAMERA)) CallManager.toggleVoiceCamera() else cameraPermission.launch(Manifest.permission.CAMERA)
-            }, fill = if (c.cameraOn) BantsYellow else Color.White, tint = BantsInk, size = 52.dp)
-            if (c.cameraOn) {
-                ChunkyIconButton(Icons.Default.Cameraswitch, "Flip camera", { CallManager.flipCamera() }, fill = Color.White, tint = BantsInk, size = 52.dp)
-                ChunkyIconButton(if (c.blur) Icons.Default.BlurOn else Icons.Default.BlurOff, if (c.blur) "Background blur off" else "Blur background", { CallManager.toggleBlur() },
-                    fill = if (c.blur) BantsYellow else Color.White, tint = BantsInk, size = 52.dp)
-            }
+            }, fill = if (c.cameraOn) BantsYellow else Color.White, tint = BantsInk, size = sz)
             ChunkyIconButton(if (c.sharingScreen) Icons.Default.StopScreenShare else Icons.Default.ScreenShare, if (c.sharingScreen) "Stop sharing" else "Share your screen", {
                 if (c.sharingScreen) CallManager.stopScreenShare() else askingQuality = true
-            }, fill = if (c.sharingScreen) BantsPink else Color.White, tint = BantsInk, size = 52.dp)
-            ChunkyIconButton(Icons.Default.CallEnd, "Leave voice", { CallManager.hangUp() }, fill = BantsPink, tint = BantsInk, size = 52.dp)
+            }, fill = if (c.sharingScreen) BantsPink else Color.White, tint = BantsInk, size = sz)
+            ChunkyIconButton(if (c.speaker) Icons.Default.VolumeUp else Icons.Default.VolumeDown, if (c.speaker) "Speaker off" else "Speaker on", { CallManager.toggleSpeaker() },
+                fill = if (c.speaker) BantsYellow else Color.White, tint = BantsInk, size = sz)
+            Box {
+                ChunkyIconButton(Icons.Default.MoreHoriz, "More", { more = true }, fill = Color.White, tint = BantsInk, size = sz)
+                DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Flip camera") }, leadingIcon = { Icon(Icons.Default.Cameraswitch, null) }, enabled = c.cameraOn,
+                        onClick = { more = false; CallManager.flipCamera() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (c.blur) "Background blur off" else "Blur background") }, leadingIcon = { Icon(if (c.blur) Icons.Default.BlurOff else Icons.Default.BlurOn, null) }, enabled = c.cameraOn,
+                        onClick = { more = false; CallManager.toggleBlur() },
+                    )
+                    if (focus != null) DropdownMenuItem(
+                        text = { Text("Show everyone") }, leadingIcon = { Icon(Icons.Default.GridView, null) },
+                        onClick = { more = false; focus = null },
+                    )
+                }
+            }
+            ChunkyIconButton(Icons.Default.CallEnd, "Leave voice", { CallManager.hangUp() }, fill = BantsPink, tint = BantsInk, size = sz)
         }
     }
 
