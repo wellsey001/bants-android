@@ -10,6 +10,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.layout.offset
 import androidx.compose.material.icons.filled.Gif
 import androidx.compose.material.icons.filled.EmojiEmotions
