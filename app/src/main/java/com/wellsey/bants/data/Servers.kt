@@ -46,6 +46,9 @@ object Servers {
     /** channelId -> (userId -> when their typing indicator runs out) */
     val typing = MutableStateFlow<Map<Long, Map<Long, Long>>>(emptyMap())
 
+    /** Set from the call screen's chat button: the app opens this channel. */
+    val openChannelRequest = MutableStateFlow<Long?>(null)
+
     /** The channel on screen right now, so its messages are marked read as they arrive. */
     @Volatile var activeChannel: Long? = null
 

@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.wellsey.bants.data.Servers
 import com.wellsey.bants.ui.Avatar
 import com.wellsey.bants.ui.BantsInk
 import com.wellsey.bants.ui.BantsPink
@@ -164,6 +165,25 @@ private fun CallScreen(answerNow: Boolean, onDone: () -> Unit, onProximity: (Boo
     }
     BackHandler(enabled = c.status == CallStatus.Incoming) { /* decide first: answer or decline */ }
 
+    if (c.voiceChannelId != null) {
+        val status = when {
+            c.endedText != null -> c.endedText
+            c.reconnecting -> "Reconnecting…"
+            c.status == CallStatus.Active -> "${c.participants.size + 1} in voice · " + formatDuration(now - (c.answeredAt ?: now))
+            c.status == CallStatus.Ended -> "Left voice"
+            else -> "Connecting…"
+        }
+        VoiceCallScreen(c, status) {
+            // Jump to the voice channel's text chat in the main app; the call keeps going.
+            Servers.openChannelRequest.value = c.voiceChannelId
+            context.startActivity(
+                android.content.Intent(context, com.wellsey.bants.MainActivity::class.java)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
+            )
+            onDone()
+        }
+        return
+    }
     val showGrid = c.group && c.participants.isNotEmpty() && c.status != CallStatus.Incoming && c.status != CallStatus.Ended
     val showRemote = !c.group && c.video && remote != null && c.status == CallStatus.Active
     Box(Modifier.fillMaxSize().background(if (showRemote || (showGrid && c.video)) Color.Black else BantsPurple)) {
@@ -283,12 +303,15 @@ private fun BigButton(icon: androidx.compose.ui.graphics.vector.ImageVector, lab
 }
 
 @Composable
-private fun VideoView(track: VideoTrack, mirror: Boolean, modifier: Modifier, overlay: Boolean = false) {
+fun VideoTile(track: VideoTrack, mirror: Boolean, fit: Boolean, modifier: Modifier) = VideoView(track, mirror, modifier, fit = fit)
+
+@Composable
+private fun VideoView(track: VideoTrack, mirror: Boolean, modifier: Modifier, overlay: Boolean = false, fit: Boolean = false) {
     val context = LocalContext.current
     val renderer = remember {
         SurfaceViewRenderer(context).apply {
             init(CallManager.egl.eglBaseContext, null)
-            setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FILL)
+            setScalingType(if (fit) RendererCommon.ScalingType.SCALE_ASPECT_FIT else RendererCommon.ScalingType.SCALE_ASPECT_FILL)
             setEnableHardwareScaler(true)
             if (overlay) setZOrderMediaOverlay(true)
         }

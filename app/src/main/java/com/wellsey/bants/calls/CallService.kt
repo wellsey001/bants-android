@@ -24,6 +24,8 @@ class CallService : Service() {
             return START_NOT_STICKY
         }
         val video = intent?.getBooleanExtra(EXTRA_VIDEO, false) == true
+        val screen = intent?.getBooleanExtra(EXTRA_SCREEN, false) == true
+        val voice = CallManager.state.value?.voiceChannelId != null
         val name = CallManager.state.value?.peerName ?: "Bants"
         createChannel(this)
         val open = PendingIntent.getActivity(
@@ -37,8 +39,8 @@ class CallService : Service() {
         val notification = NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(0xFF5B4BFF.toInt())
-            .setContentTitle(if (video) "Video call with $name" else "Voice call with $name")
-            .setContentText("Tap to go back to the call")
+            .setContentTitle(if (voice) "In voice: $name" else if (video) "Video call with $name" else "Voice call with $name")
+            .setContentText(if (screen) "You're sharing your screen" else "Tap to go back to the call")
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setContentIntent(open)
@@ -46,10 +48,14 @@ class CallService : Service() {
             .build()
         var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
         if (video && Build.VERSION.SDK_INT >= 30) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+        // Screen sharing: Android 14 only lets capture start once the service says it's capturing the screen.
+        if (screen && Build.VERSION.SDK_INT >= 29) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
         try {
             ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, if (Build.VERSION.SDK_INT >= 29) type else 0)
+            screenReady.value = screen
         } catch (e: Exception) {
-            stopSelf()
+            screenReady.value = false
+            if (!screen) stopSelf()
         }
         return START_NOT_STICKY
     }
@@ -59,6 +65,10 @@ class CallService : Service() {
         private const val NOTIFICATION_ID = 4201
         private const val ACTION_HANG_UP = "com.wellsey.bants.HANG_UP"
         private const val EXTRA_VIDEO = "video"
+        private const val EXTRA_SCREEN = "screen"
+
+        /** True once the service is running as a screen-capture service. */
+        val screenReady = kotlinx.coroutines.flow.MutableStateFlow(false)
 
         fun createChannel(context: Context) {
             if (Build.VERSION.SDK_INT < 26) return
@@ -70,9 +80,13 @@ class CallService : Service() {
             )
         }
 
-        fun start(context: Context, video: Boolean) {
+        fun start(context: Context, video: Boolean, screen: Boolean = false) {
+            if (screen) screenReady.value = false
             runCatching {
-                ContextCompat.startForegroundService(context, Intent(context, CallService::class.java).putExtra(EXTRA_VIDEO, video))
+                ContextCompat.startForegroundService(
+                    context,
+                    Intent(context, CallService::class.java).putExtra(EXTRA_VIDEO, video).putExtra(EXTRA_SCREEN, screen),
+                )
             }
         }
 

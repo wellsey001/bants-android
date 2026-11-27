@@ -2,6 +2,11 @@
 
 package com.wellsey.bants.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -168,7 +173,7 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
     }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        ChunkyTopBar(if (channel.type == "thread") channel.name else "#${channel.name}", nav) {
+        ChunkyTopBar(if (channel.type == "thread" || channel.type == "voice") channel.name else "#${channel.name}", nav) {
             if (channel.type == "text" || channel.type == "announcement") {
                 ChunkyIconButton(Icons.Default.Forum, "Threads", { threadsOpen = true })
             }
@@ -177,12 +182,16 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
         if (channel.topic.isNotBlank()) {
             Text(channel.topic, fontSize = 13.sp, color = b.muted, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 18.dp, end = 18.dp, bottom = 8.dp))
         }
+        if (channel.type == "voice") VoiceCard(channel, server, members)
         Box(Modifier.fillMaxWidth().height(2.5.dp).background(b.outline))
 
         Box(Modifier.weight(1f)) {
             if (list.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    EmptyNote(if (channel.type == "thread") "new thread" else "#${channel.name}", "This is the very start. Say something cheeky.")
+                    EmptyNote(
+                        if (channel.type == "thread") "new thread" else if (channel.type == "voice") channel.name else "#${channel.name}",
+                        if (channel.type == "voice") "Chat for whoever's in voice. Links, memes, \"can you hear me?\"" else "This is the very start. Say something cheeky.",
+                    )
                 }
             }
             val reversed = remember(list) { list.asReversed() }
@@ -299,7 +308,7 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
                             field = it
                             if (it.text.isNotEmpty() && editing == null) Servers.sendTyping(channelId)
                         },
-                        placeholder = { Text(if (channel.type == "thread") "Reply in thread…" else "Message #${channel.name}") },
+                        placeholder = { Text(if (channel.type == "thread") "Reply in thread…" else if (channel.type == "voice") "Message ${channel.name}" else "Message #${channel.name}") },
                         maxLines = 5,
                         shape = FieldShape,
                         colors = chunkyFieldColors(),
@@ -636,4 +645,64 @@ private fun PinsDialog(channel: ServerChannel, members: List<ServerMember>, onDi
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
     )
+}
+
+
+/** Top of a voice channel's chat: who's in there, and Join / Open / Leave. */
+@Composable
+private fun VoiceCard(channel: ServerChannel, server: BantsServer, members: List<ServerMember>) {
+    val b = LocalBants.current
+    val context = LocalContext.current
+    val call by com.wellsey.bants.calls.CallManager.state.collectAsState()
+    val inHere = call?.voiceChannelId == channel.id && call?.status != com.wellsey.bants.calls.CallStatus.Ended
+    val mic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) com.wellsey.bants.calls.CallManager.joinVoice(channel.id, voiceTitle(channel, server))
+        else toast(context, "Bants needs the microphone for voice channels")
+    }
+    fun join() {
+        if (!channel.permissions.has(Perm.CONNECT)) return toast(context, "You can't join this voice channel")
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            com.wellsey.bants.calls.CallManager.joinVoice(channel.id, voiceTitle(channel, server))
+        } else mic.launch(Manifest.permission.RECORD_AUDIO)
+    }
+    Column(
+        Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 10.dp)
+            .chunky(RoundedCornerShape(16.dp), if (inHere) OnlineGreen else b.card, b.outline, shadow = 3.dp)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        val here = channel.voiceMembers
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                when {
+                    inHere -> "You're in voice"
+                    here.isEmpty() -> "Nobody's in voice yet"
+                    here.size == 1 -> "1 person in voice"
+                    else -> "${here.size} people in voice"
+                },
+                fontFamily = Bricolage, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp,
+                color = if (inHere) BantsInk else b.onCard, modifier = Modifier.weight(1f),
+            )
+            if (here.any { it.screen }) {
+                Text("LIVE", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black,
+                    modifier = Modifier.background(Color(0xFFE5484D), RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 1.dp))
+            }
+        }
+        if (here.isNotEmpty()) {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                here.forEach { v ->
+                    val m = members.firstOrNull { it.user.id == v.id }
+                    Avatar(m?.user?.displayName ?: "?", m?.user?.avatar, size = 34.dp)
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (inHere) {
+                ChunkyButton("Open call", onClick = { com.wellsey.bants.calls.CallManager.showCallScreen() }, fill = Color.White, content = BantsInk, modifier = Modifier.weight(1f))
+                ChunkyButton("Leave", onClick = { com.wellsey.bants.calls.CallManager.hangUp() }, fill = BantsPink, content = BantsInk, modifier = Modifier.weight(1f))
+            } else {
+                ChunkyButton("Join voice", onClick = { join() }, fill = BantsPurple, content = Color.White, modifier = Modifier.fillMaxWidth())
+            }
+        }
+    }
 }

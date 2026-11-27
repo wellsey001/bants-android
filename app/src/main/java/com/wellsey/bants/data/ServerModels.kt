@@ -43,7 +43,7 @@ data class ServerChannel(
 )
 
 @Serializable
-data class VoiceMember(val id: Long, val muted: Boolean = false, val deafened: Boolean = false, val video: Boolean = false)
+data class VoiceMember(val id: Long, val muted: Boolean = false, val deafened: Boolean = false, val video: Boolean = false, val screen: Boolean = false)
 
 @Serializable
 data class ServerMe(

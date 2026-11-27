@@ -40,6 +40,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Add
@@ -55,6 +56,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tag
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -213,7 +215,10 @@ fun ServersHomeScreen(nav: Navigator) {
                 .align(Alignment.BottomStart)
                 .windowInsetsPadding(WindowInsets.navigationBars)
                 .padding(start = 12.dp, end = 100.dp, bottom = 22.dp),
-        )
+        ) { id ->
+            Servers.channel(id)?.let { nav.go(Screen.Server(it.serverId)) }
+            nav.go(Screen.Channel(id))
+        }
         ChunkyIconButton(
             Icons.Default.Add,
             "Add a server",
@@ -322,29 +327,8 @@ fun ServerScreen(serverId: Long, nav: Navigator) {
     var confirm by remember { mutableStateOf<String?>(null) }
     val collapsed = remember { mutableStateListOf<Long>() }
     val allMembers by Servers.members.collectAsState()
-    var wantVoice by remember { mutableStateOf<ServerChannel?>(null) }
-    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
-        val c = wantVoice
-        wantVoice = null
-        if (ok && c != null) CallManager.joinVoice(c.id, voiceTitle(c, Servers.servers.value[c.serverId]))
-        else if (!ok) toast(context, "Bants needs the microphone for voice channels")
-    }
-    fun open(c: ServerChannel) {
-        if (c.type != "voice") {
-            nav.go(Screen.Channel(c.id))
-            return
-        }
-        if (!c.permissions.has(Perm.CONNECT)) {
-            toast(context, "You can't join this voice channel")
-            return
-        }
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-            CallManager.joinVoice(c.id, voiceTitle(c, Servers.servers.value[c.serverId]))
-        } else {
-            wantVoice = c
-            micPermission.launch(Manifest.permission.RECORD_AUDIO)
-        }
-    }
+    // Voice channels open their own text chat, with the Join voice card at the top (like Discord on mobile).
+    fun open(c: ServerChannel) = nav.go(Screen.Channel(c.id))
 
     LaunchedEffect(serverId) {
         runCatching { Servers.refreshServer(serverId) }.onFailure { if (Servers.servers.value[serverId] == null) nav.back() }
@@ -429,7 +413,7 @@ fun ServerScreen(serverId: Long, nav: Navigator) {
                 }
             }
         }
-        VoiceBar(Modifier.navigationBarsPadding().padding(12.dp))
+        VoiceBar(Modifier.navigationBarsPadding().padding(12.dp)) { id -> nav.go(Screen.Channel(id)) }
     }
 
     if (inviting) InviteDialog(s) { inviting = false }
@@ -443,11 +427,11 @@ fun ServerScreen(serverId: Long, nav: Navigator) {
     }
 }
 
-private fun voiceTitle(c: ServerChannel, s: BantsServer?) = if (s != null) "${c.name} · ${s.name}" else c.name
+fun voiceTitle(c: ServerChannel, s: BantsServer?) = if (s != null) "${c.name} · ${s.name}" else c.name
 
 /** "You're in voice" strip with mute and leave, shown in the servers screens while you're in a voice channel. */
 @Composable
-fun VoiceBar(modifier: Modifier = Modifier) {
+fun VoiceBar(modifier: Modifier = Modifier, onChat: ((Long) -> Unit)? = null) {
     val call by CallManager.state.collectAsState()
     val c = call ?: return
     if (c.voiceChannelId == null || c.status == CallStatus.Ended) return
@@ -467,6 +451,10 @@ fun VoiceBar(modifier: Modifier = Modifier) {
                 fontFamily = Bricolage, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = BantsInk,
             )
             Text(c.peerName, fontSize = 13.sp, color = BantsInk, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (onChat != null) {
+            ChunkyIconButton(Icons.AutoMirrored.Filled.Chat, "Voice channel chat", { onChat(c.voiceChannelId) }, size = 40.dp)
+            Spacer(Modifier.width(8.dp))
         }
         ChunkyIconButton(if (c.muted) Icons.Default.MicOff else Icons.Default.Mic, if (c.muted) "Unmute" else "Mute", { CallManager.toggleMute() }, size = 40.dp)
         Spacer(Modifier.width(8.dp))
@@ -492,6 +480,15 @@ private fun ChannelRow(c: ServerChannel, members: List<ServerMember>, onLongClic
                 Avatar(m?.user?.displayName ?: "?", m?.user?.avatar, size = 24.dp, outlined = false)
                 Spacer(Modifier.width(8.dp))
                 Text(m?.shownName() ?: "Someone", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = b.onCard, modifier = Modifier.weight(1f, fill = false))
+                if (v.screen) {
+                    Spacer(Modifier.width(6.dp))
+                    Text("LIVE", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black,
+                        modifier = Modifier.background(Color(0xFFE5484D), RoundedCornerShape(4.dp)).padding(horizontal = 4.dp, vertical = 1.dp))
+                }
+                if (v.video) {
+                    Spacer(Modifier.width(6.dp))
+                    Icon(Icons.Default.Videocam, contentDescription = "Camera on", tint = b.muted, modifier = Modifier.size(15.dp))
+                }
                 if (v.muted) {
                     Spacer(Modifier.width(6.dp))
                     Icon(Icons.Default.MicOff, contentDescription = "Muted", tint = b.muted, modifier = Modifier.size(15.dp))

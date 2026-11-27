@@ -40,6 +40,24 @@ class Session(context: Context) {
         get() = prefs.getBoolean("callAutoGain", true)
         set(value) = prefs.edit().putBoolean("callAutoGain", value).apply()
 
+    /** Voice channels: camera quality ("360", "720", "1080") and frame rate. */
+    var callCamRes: String
+        get() = prefs.getString("callCamRes", "720") ?: "720"
+        set(value) = prefs.edit().putString("callCamRes", value).apply()
+
+    var callCamFps: Int
+        get() = prefs.getInt("callCamFps", 30)
+        set(value) = prefs.edit().putInt("callCamFps", value).apply()
+
+    /** Voice channels: last screen share quality picked ("720", "1080", "source") and frame rate. */
+    var callScreenRes: String
+        get() = prefs.getString("callScreenRes", "1080") ?: "1080"
+        set(value) = prefs.edit().putString("callScreenRes", value).apply()
+
+    var callScreenFps: Int
+        get() = prefs.getInt("callScreenFps", 30)
+        set(value) = prefs.edit().putInt("callScreenFps", value).apply()
+
     /** Video calls: blur behind you, "off", "light" or "strong". */
     var callBlur: String
         get() = prefs.getString("callBlur", "off") ?: "off"

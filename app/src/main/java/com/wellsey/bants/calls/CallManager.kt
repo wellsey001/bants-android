@@ -3,6 +3,7 @@ package com.wellsey.bants.calls
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
+import android.media.projection.MediaProjection
 import com.wellsey.bants.data.Bants
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -34,6 +35,8 @@ import org.webrtc.EglBase
 import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
 import org.webrtc.MediaStream
+import org.webrtc.MediaStreamTrack
+import org.webrtc.ScreenCapturerAndroid
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnectionFactory
 import org.webrtc.RtpTransceiver
@@ -74,6 +77,8 @@ data class CallUi(
     val participants: List<CallPerson> = emptyList(),
     /** Background blur is on for your camera. */
     val blur: Boolean = false,
+    /** Voice channels: you're sharing your screen ("live"). */
+    val sharingScreen: Boolean = false,
     /** Set when this "call" is a server voice channel you've dropped into. */
     val voiceChannelId: Long? = null,
 )
@@ -98,6 +103,14 @@ object CallManager {
     val remoteVideo = MutableStateFlow<VideoTrack?>(null)
     /** Group calls: everyone's video, by user id. */
     val remoteVideos = MutableStateFlow<Map<Long, VideoTrack>>(emptyMap())
+    /** Voice channels: screen shares coming in, by user id. */
+    val remoteScreens = MutableStateFlow<Map<Long, VideoTrack>>(emptyMap())
+    /** Voice channels: your own screen share, for the preview. */
+    val localScreen = MutableStateFlow<VideoTrack?>(null)
+    private var screenCapturer: ScreenCapturerAndroid? = null
+    private var screenSource: VideoSource? = null
+    private var screenHelper: SurfaceTextureHelper? = null
+    private var screenFps = 30
 
     private lateinit var appContext: Context
     val egl: EglBase by lazy { EglBase.create() }
@@ -119,6 +132,10 @@ object CallManager {
         var connected = false
         var disconnectJob: Job? = null
         var creating = false
+        // Voice channels: fixed slots (mic, camera, screen, screen sound), same order as desktop.
+        var camTx: RtpTransceiver? = null
+        var screenTx: RtpTransceiver? = null
+        var screenAudioTx: RtpTransceiver? = null
     }
 
     private val peers = java.util.concurrent.ConcurrentHashMap<Long, Peer>()
@@ -212,7 +229,7 @@ object CallManager {
         }
         state.value = CallUi(
             null, 0, 0, name, null, video = false, incoming = false, status = CallStatus.Connecting,
-            speaker = true, group = true, voiceChannelId = channelId,
+            speaker = true, group = true, voiceChannelId = channelId, cameraOn = false,
         )
         CallService.start(appContext, false)
         setUpAudio(true)
@@ -240,7 +257,175 @@ object CallManager {
         Bants.realtime.send(buildJsonObject {
             put("type", "voice.update")
             put("muted", s.muted)
+            put("video", s.cameraOn && localVideo.value != null)
+            put("screen", s.sharingScreen)
         })
+    }
+
+    // ───────────── camera and screen sharing in voice channels ─────────────
+    // Every voice connection has fixed slots in this order: mic, camera, screen, screen sound.
+    // Turning the camera or a screen share on just fills its slot, so nobody reconnects.
+
+    private val camSizes = mapOf("360" to (640 to 360), "720" to (1280 to 720), "1080" to (1920 to 1080))
+    private val camBitrates = mapOf("360" to 600_000, "720" to 1_500_000, "1080" to 3_000_000)
+    private val screenBitrates = mapOf("720" to 2_000_000, "1080" to 3_500_000, "source" to 6_000_000)
+
+    private fun voiceSlots(p: Peer, offering: Boolean) {
+        val conn = p.pc ?: return
+        val sendRecv = RtpTransceiver.RtpTransceiverDirection.SEND_RECV
+        if (offering) {
+            if (p.camTx == null) p.camTx = conn.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO, RtpTransceiver.RtpTransceiverInit(sendRecv))
+            if (p.screenTx == null) p.screenTx = conn.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO, RtpTransceiver.RtpTransceiverInit(sendRecv))
+            if (p.screenAudioTx == null) p.screenAudioTx = conn.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO, RtpTransceiver.RtpTransceiverInit(sendRecv))
+        } else {
+            // Answering: the slots came from their offer, in the same order.
+            val all = conn.transceivers
+            val vids = all.filter { it.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO }
+            val auds = all.filter { it.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO }
+            p.camTx = vids.getOrNull(0)
+            p.screenTx = vids.getOrNull(1)
+            p.screenAudioTx = auds.getOrNull(1)
+            listOfNotNull(p.camTx, p.screenTx, p.screenAudioTx).forEach { it.setDirection(sendRecv) }
+        }
+        val cam = if (state.value?.cameraOn == true) localVideo.value else null
+        runCatching { p.camTx?.sender?.setTrack(cam, false) }
+        runCatching { p.screenTx?.sender?.setTrack(localScreen.value, false) }
+    }
+
+    /** Caps bitrate and frame rate so one stream can't swamp your upload. */
+    private fun applyEncodings(p: Peer) {
+        val sess = Bants.session
+        fun cap(tx: RtpTransceiver?, bitrate: Int, fps: Int) {
+            val sender = tx?.sender ?: return
+            runCatching {
+                val params = sender.parameters
+                params.encodings.forEach {
+                    it.maxBitrateBps = bitrate
+                    it.maxFramerate = fps
+                }
+                sender.setParameters(params)
+            }
+        }
+        cap(p.camTx, camBitrates[sess.callCamRes] ?: 1_500_000, sess.callCamFps)
+        val scale = if (screenFps >= 60) 1.6 else if (screenFps <= 15) 0.6 else 1.0
+        cap(p.screenTx, ((screenBitrates[sess.callScreenRes] ?: 3_500_000) * scale).toInt(), screenFps)
+    }
+
+    private fun fillCamSlot(track: VideoTrack?) {
+        peers.values.forEach { p ->
+            runCatching { p.camTx?.sender?.setTrack(track, false) }
+            applyEncodings(p)
+        }
+    }
+
+    private fun fillScreenSlot(track: VideoTrack?) {
+        peers.values.forEach { p ->
+            runCatching { p.screenTx?.sender?.setTrack(track, false) }
+            applyEncodings(p)
+        }
+    }
+
+    /** Voice channels: camera on/off. Ask for the camera permission before calling this. */
+    fun toggleVoiceCamera() {
+        val s = state.value ?: return
+        if (s.voiceChannelId == null) return
+        if (s.cameraOn && localVideo.value != null) {
+            fillCamSlot(null)
+            stopCamera()
+            state.value = state.value?.copy(cameraOn = false)
+        } else {
+            CallService.start(appContext, video = true, screen = s.sharingScreen)
+            val (w, h) = camSizes[Bants.session.callCamRes] ?: (1280 to 720)
+            if (!startCamera(w, h, Bants.session.callCamFps)) {
+                Bants.notices.tryEmit("Couldn't open your camera")
+                return
+            }
+            state.value = state.value?.copy(cameraOn = true)
+            fillCamSlot(localVideo.value)
+        }
+        sendVoiceState()
+    }
+
+    /**
+     * Voice channels: go live. [data] is the result of Android's "start recording or casting?" prompt.
+     * The call service has to be running as a screen-capture service before capture starts (Android 14).
+     */
+    fun startScreenShare(data: Intent, res: String, fps: Int) {
+        val s = state.value ?: return
+        if (s.voiceChannelId == null) return
+        Bants.session.callScreenRes = res
+        Bants.session.callScreenFps = fps
+        screenFps = fps
+        CallService.start(appContext, video = s.cameraOn && localVideo.value != null, screen = true)
+        scope.launch {
+            withTimeoutOrNull(3_000) { CallService.screenReady.first { it } }
+            try {
+                stopScreenShareMedia()
+                val f = ensureFactory()
+                val m = appContext.resources.displayMetrics
+                val longest = maxOf(m.widthPixels, m.heightPixels)
+                val limit = when (res) { "720" -> 1280; "1080" -> 1920; else -> longest }
+                val scale = minOf(1.0, limit.toDouble() / longest)
+                val w = ((m.widthPixels * scale).toInt() / 2) * 2
+                val h = ((m.heightPixels * scale).toInt() / 2) * 2
+                val capturer = ScreenCapturerAndroid(data, object : MediaProjection.Callback() {
+                    override fun onStop() {
+                        scope.launch { stopScreenShare() }
+                    }
+                })
+                val helper = SurfaceTextureHelper.create("BantsScreen", egl.eglBaseContext)
+                val source = f.createVideoSource(true)
+                capturer.initialize(helper, appContext, source.capturerObserver)
+                capturer.startCapture(w, h, fps)
+                screenCapturer = capturer
+                screenHelper = helper
+                screenSource = source
+                val track = f.createVideoTrack("bants-screen", source)
+                localScreen.value = track
+                fillScreenSlot(track)
+                state.value = state.value?.copy(sharingScreen = true)
+                sendVoiceState()
+            } catch (e: Exception) {
+                stopScreenShareMedia()
+                Bants.notices.tryEmit("Couldn't share your screen")
+            }
+        }
+    }
+
+    fun stopScreenShare() {
+        if (localScreen.value == null && screenCapturer == null) return
+        fillScreenSlot(null)
+        stopScreenShareMedia()
+        state.value = state.value?.copy(sharingScreen = false)
+        sendVoiceState()
+        val s = state.value ?: return
+        CallService.start(appContext, video = s.cameraOn && localVideo.value != null, screen = false)
+    }
+
+    private fun stopScreenShareMedia() {
+        runCatching { screenCapturer?.stopCapture() }
+        runCatching { screenCapturer?.dispose() }
+        screenCapturer = null
+        localScreen.value?.let { runCatching { it.dispose() } }
+        localScreen.value = null
+        runCatching { screenSource?.dispose() }
+        screenSource = null
+        runCatching { screenHelper?.dispose() }
+        screenHelper = null
+    }
+
+    private fun stopCamera() {
+        runCatching { capturer?.stopCapture() }
+        blurProcessor?.dispose()
+        blurProcessor = null
+        runCatching { capturer?.dispose() }
+        capturer = null
+        localVideo.value?.let { runCatching { it.dispose() } }
+        localVideo.value = null
+        runCatching { videoSource?.dispose() }
+        videoSource = null
+        runCatching { textureHelper?.dispose() }
+        textureHelper = null
     }
 
     fun accept() {
@@ -528,25 +713,32 @@ object CallManager {
         audioSource = f.createAudioSource(constraints)
         audioTrack = f.createAudioTrack("bants-audio", audioSource)
         if (!video) return
+        startCamera(1280, 720, 30)
+    }
+
+    /** Opens the front camera into [localVideo], with background blur if it's switched on. */
+    private fun startCamera(width: Int, height: Int, fps: Int): Boolean {
+        val f = ensureFactory()
         val enumerator = Camera2Enumerator(appContext)
-        val name = enumerator.deviceNames.firstOrNull { enumerator.isFrontFacing(it) } ?: enumerator.deviceNames.firstOrNull() ?: return
-        val cam = enumerator.createCapturer(name, null) ?: return
+        val name = enumerator.deviceNames.firstOrNull { enumerator.isFrontFacing(it) } ?: enumerator.deviceNames.firstOrNull() ?: return false
+        val cam = enumerator.createCapturer(name, null) ?: return false
         val helper = SurfaceTextureHelper.create("BantsCamera", egl.eglBaseContext)
         val source = f.createVideoSource(false)
         cam.initialize(helper, appContext, source.capturerObserver)
-        val blur = sess.callBlur
+        val blur = Bants.session.callBlur
         if (blur != "off") {
             blurProcessor = BackgroundBlur(strong = blur == "strong").also { source.setVideoProcessor(it) }
             // Blurring every frame is hard work, so use a smaller picture while it's on.
-            runCatching { cam.startCapture(640, 480, 24) }
+            runCatching { cam.startCapture(minOf(width, 640), minOf(height, 480), minOf(fps, 24)) }
         } else {
-            runCatching { cam.startCapture(1280, 720, 30) }
+            runCatching { cam.startCapture(width, height, fps) }
         }
-        state.value = state.value?.copy(blur = blur != "off")
+        state.value = state.value?.copy(blur = blur != "off", frontCamera = true)
         capturer = cam
         textureHelper = helper
         videoSource = source
         localVideo.value = f.createVideoTrack("bants-video", source)
+        return true
     }
 
     private suspend fun iceServers(): List<PeerConnection.IceServer> {
@@ -586,6 +778,8 @@ object CallManager {
     }
 
     private fun constraints(): MediaConstraints {
+        // Voice channels: no OfferToReceive* (it would flip the video slots to send-only).
+        if (state.value?.voiceChannelId != null) return MediaConstraints()
         val video = state.value?.video == true
         return MediaConstraints().apply {
             mandatory += MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true")
@@ -594,7 +788,9 @@ object CallManager {
     }
 
     private suspend fun makeOffer(userId: Long) {
-        val conn = peers[userId]?.pc ?: return
+        val p = peers[userId] ?: return
+        val conn = p.pc ?: return
+        if (state.value?.voiceChannelId != null) voiceSlots(p, offering = true)
         val offer = conn.awaitCreate(true, constraints())
             ?: return if (state.value?.group == true) closePeer(userId) else end("Couldn't start the call", notify = false)
         conn.awaitSetLocal(offer)
@@ -611,17 +807,21 @@ object CallManager {
                 val sdp = data["sdp"]?.jsonPrimitive?.contentOrNull ?: return@launch
                 conn.awaitSetRemote(SessionDescription(SessionDescription.Type.OFFER, sdp))
                 onRemoteDescription(p)
+                val voice = state.value?.voiceChannelId != null
+                if (voice) voiceSlots(p, offering = false)
                 val answer = conn.awaitCreate(false, constraints()) ?: return@launch
                 conn.awaitSetLocal(answer)
                 sendSignal(p.userId, buildJsonObject {
                     put("type", "answer")
                     put("sdp", answer.description)
                 })
+                if (voice) applyEncodings(p)
             }
             "answer" -> scope.launch {
                 val sdp = data["sdp"]?.jsonPrimitive?.contentOrNull ?: return@launch
                 conn.awaitSetRemote(SessionDescription(SessionDescription.Type.ANSWER, sdp))
                 onRemoteDescription(p)
+                if (state.value?.voiceChannelId != null) applyEncodings(p)
             }
             "candidate" -> {
                 val c = IceCandidate(
@@ -714,6 +914,14 @@ object CallManager {
         override fun onTrack(transceiver: RtpTransceiver) {
             val track = transceiver.receiver.track()
             if (track is VideoTrack) scope.launch {
+                if (state.value?.voiceChannelId != null) {
+                    // Voice channels: second video slot = their screen, first = their camera.
+                    val vids = p.pc?.transceivers?.filter { it.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO }.orEmpty()
+                    if (vids.indexOfFirst { it.mid == transceiver.mid } == 1) {
+                        remoteScreens.value = remoteScreens.value + (p.userId to track)
+                        return@launch
+                    }
+                }
                 remoteVideos.value = remoteVideos.value + (p.userId to track)
                 if (state.value?.group != true) remoteVideo.value = track
             }
@@ -733,6 +941,7 @@ object CallManager {
         val p = peers.remove(userId) ?: return
         p.disconnectJob?.cancel()
         remoteVideos.value = remoteVideos.value - userId
+        remoteScreens.value = remoteScreens.value - userId
         runCatching { p.pc?.close() }
         p.pc = null
     }
@@ -776,6 +985,8 @@ object CallManager {
         peers.keys.toList().forEach { closePeer(it) }
         peers.clear()
         iceCache = null
+        stopScreenShareMedia()
+        remoteScreens.value = emptyMap()
         runCatching { capturer?.stopCapture() }
         blurProcessor?.dispose()
         blurProcessor = null

@@ -33,6 +33,8 @@ fun CallSettingsScreen(nav: Navigator) {
     var echo by remember { mutableStateOf(session.callEcho) }
     var autoGain by remember { mutableStateOf(session.callAutoGain) }
     var blur by remember { mutableStateOf(session.callBlur) }
+    var camRes by remember { mutableStateOf(session.callCamRes) }
+    var camFps by remember { mutableStateOf(session.callCamFps) }
 
     Scaffold(topBar = { ChunkyTopBar("Voice & video", nav) }) { padding ->
         Column(
@@ -78,6 +80,20 @@ fun CallSettingsScreen(nav: Navigator) {
             )
             Text(
                 "Blur is worked out on your phone, so it uses more battery and older phones may send a slightly jerkier picture. You can also turn it on and off during a call.",
+                style = MaterialTheme.typography.bodySmall, color = b.muted,
+            )
+
+            Heading("CAMERA IN VOICE CHANNELS")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("360" to "360p", "720" to "720p", "1080" to "1080p").forEach { (k, label) ->
+                    ChunkyChip(label, camRes == k) { camRes = k; session.callCamRes = k }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(15, 30).forEach { f -> ChunkyChip("$f fps", camFps == f) { camFps = f; session.callCamFps = f } }
+            }
+            Text(
+                "Higher looks sharper but uses more data, and everyone in the channel gets their own copy. Screen share quality is picked each time you go live.",
                 style = MaterialTheme.typography.bodySmall, color = b.muted,
             )
 

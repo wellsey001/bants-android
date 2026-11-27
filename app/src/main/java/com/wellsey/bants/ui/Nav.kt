@@ -84,6 +84,17 @@ fun BantsRoot(openConversation: MutableStateFlow<Long?>) {
         openConversation.value = null
     }
 
+    val openChannel by Servers.openChannelRequest.collectAsState()
+    LaunchedEffect(openChannel) {
+        val id = openChannel ?: return@LaunchedEffect
+        Servers.openChannelRequest.value = null
+        val c = Servers.channel(id) ?: return@LaunchedEffect
+        Servers.setMode(HomeMode.Servers)
+        nav.home()
+        nav.go(Screen.Server(c.serverId))
+        nav.go(Screen.Channel(id))
+    }
+
     AskForNotifications()
     val context = LocalContext.current
     LaunchedEffect(Unit) { Bants.notices.collect { toast(context, it) } }
