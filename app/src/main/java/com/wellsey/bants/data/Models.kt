@@ -25,6 +25,9 @@ data class User(
     val decoration: String? = null,
     val profileEffect: String? = null,
     val nameStyle: NameStyle? = null,
+    /** Your own sounds for joining and leaving voice channels (only on your own profile). */
+    val joinSound: String? = null,
+    val leaveSound: String? = null,
 )
 
 /** A name in a chosen font, optionally in one colour or a two-colour gradient. */

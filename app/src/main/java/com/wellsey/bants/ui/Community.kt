@@ -656,3 +656,105 @@ fun ChannelVoice(a: com.wellsey.bants.data.ChannelAttachment) {
         Spacer(Modifier.width(6.dp))
     }
 }
+
+// ───────────────────────── soundboard ─────────────────────────
+
+/** Tap a sound to play it for everyone in the voice channel. ★ keeps it for any server. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun SoundboardSheet(serverId: Long, onManage: () -> Unit, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val all by com.wellsey.bants.data.VoiceExtras.sounds.collectAsState()
+    val favs by com.wellsey.bants.data.VoiceExtras.favourites.collectAsState()
+    LaunchedEffect(serverId) { runCatching { com.wellsey.bants.data.VoiceExtras.load(serverId) }.onFailure { toast(context, it.message) } }
+    val here = all[serverId]
+    val b = LocalBants.current
+    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss, containerColor = b.card) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("🔊 Soundboard", fontFamily = Bricolage, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, color = b.onCard, modifier = Modifier.weight(1f))
+                TextButton(onClick = onManage) { Text("Manage") }
+            }
+            @Composable
+            fun Grid(list: List<com.wellsey.bants.data.ServerSound>) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    list.forEach { s ->
+                        Row(
+                            Modifier.chunkyClickable(RoundedCornerShape(12.dp), b.card, b.outline, shadow = 2.dp) { com.wellsey.bants.calls.CallManager.playSound(s.id) }
+                                .padding(start = 10.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(s.emoji, fontSize = 18.sp)
+                            Spacer(Modifier.width(6.dp))
+                            Text(s.name, fontWeight = FontWeight.Bold, color = b.onCard, maxLines = 1)
+                            TextButton(onClick = { scope.launch { runCatching { com.wellsey.bants.data.VoiceExtras.setFavourite(s, !s.favourite) }.onFailure { toast(context, it.message) } } }) {
+                                Text(if (s.favourite) "★" else "☆", color = if (s.favourite) BantsYellow else b.muted, fontSize = 18.sp)
+                            }
+                        }
+                    }
+                }
+            }
+            when {
+                here == null -> Text("Loading…", color = b.muted)
+                here.isEmpty() -> Text("No sounds in this server yet. Tap Manage to add some.", color = b.muted)
+                else -> Grid(here)
+            }
+            val others = favs.filter { it.serverId != serverId }
+            if (others.isNotEmpty()) {
+                Text("YOUR FAVOURITES", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = b.muted)
+                Grid(others)
+            }
+        }
+    }
+}
+
+@Composable
+fun SoundboardScreen(serverId: Long, nav: Navigator) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val servers by Servers.servers.collectAsState()
+    val all by com.wellsey.bants.data.VoiceExtras.sounds.collectAsState()
+    val s = servers[serverId] ?: return
+    val can = s.permissions.has(Perm.MANAGE_EMOJIS) || s.ownerId == Bants.myId
+    var name by remember { mutableStateOf("") }
+    var emoji by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    LaunchedEffect(serverId) { runCatching { com.wellsey.bants.data.VoiceExtras.load(serverId) } }
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) scope.launch {
+            busy = true
+            runCatching { com.wellsey.bants.data.VoiceExtras.add(context, serverId, uri, name, emoji) }
+                .onSuccess { name = ""; emoji = ""; toast(context, "Sound added") }.onFailure { toast(context, it.message) }
+            busy = false
+        }
+    }
+    val b = LocalBants.current
+    Scaffold(topBar = { ChunkyTopBar("Soundboard", nav) }) { padding ->
+        LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            item { Text("Short clips anyone in a voice channel can play for everyone. Up to 30 per server, about 5 seconds each.", color = b.muted, fontSize = 14.sp) }
+            if (can) item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(emoji, { emoji = it.take(16) }, label = { Text("Emoji") }, placeholder = { Text("📯") }, singleLine = true, shape = FieldShape, colors = chunkyFieldColors(), modifier = Modifier.width(96.dp))
+                        OutlinedTextField(name, { name = it.take(32) }, label = { Text("Name") }, placeholder = { Text("Air horn") }, singleLine = true, shape = FieldShape, colors = chunkyFieldColors(), modifier = Modifier.weight(1f))
+                    }
+                    ChunkyButton(if (busy) "Adding…" else "Pick a sound file", onClick = { pick.launch("audio/*") }, busy = busy, icon = Icons.Default.Add, modifier = Modifier.fillMaxWidth())
+                }
+            }
+            val list = all[serverId]
+            if (list == null) item { Text("Loading…", color = b.muted) } else if (list.isEmpty()) item { Text("No sounds yet.", color = b.muted) }
+            items(list.orEmpty(), key = { it.id }) { snd ->
+                Row(Modifier.fillMaxWidth().chunky(RoundedCornerShape(14.dp), b.card, b.outline, shadow = 2.dp).padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(snd.emoji, fontSize = 20.sp)
+                    Spacer(Modifier.width(10.dp))
+                    Text(snd.name, fontWeight = FontWeight.Bold, color = b.onCard, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { scope.launch { com.wellsey.bants.data.VoiceExtras.play(snd.media, snd.volume) } }) { Text("▶ Play") }
+                    if (can) TextButton(onClick = { scope.launch { runCatching { com.wellsey.bants.data.VoiceExtras.delete(snd) }.onFailure { toast(context, it.message) } } }) {
+                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        }
+    }
+}

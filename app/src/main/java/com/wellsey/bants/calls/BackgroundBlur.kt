@@ -29,7 +29,7 @@ import kotlin.math.min
  * While one frame is being worked on, newer ones are skipped, so a slow phone gets fewer frames
  * rather than a growing delay.
  */
-class BackgroundBlur(strong: Boolean) : VideoProcessor {
+class BackgroundBlur(strong: Boolean, private val image: Bitmap? = null) : VideoProcessor {
     /** How far the background is shrunk before blurring: bigger = blurrier. */
     @Volatile var factor: Int = if (strong) 12 else 7
 
@@ -112,6 +112,16 @@ class BackgroundBlur(strong: Boolean) : VideoProcessor {
         val mw = lastMaskW
         val mh = lastMaskH
 
+        val out = JavaI420Buffer.allocate(w, h)
+        if (image != null) {
+            // A picture behind you instead of a blur.
+            val bg = backgroundPlanes(w, h, cw, ch, rotation)
+            blendFull(yBytes, w, h, bg.first, mask, mw, mh, out.dataY, out.strideY)
+            blendFull(uBytes, cw, ch, bg.second, mask, mw, mh, out.dataU, out.strideU)
+            blendFull(vBytes, cw, ch, bg.third, mask, mw, mh, out.dataV, out.strideV)
+            return out
+        }
+
         // 2. A soft blurred copy of each plane, kept small.
         val d = max(2, factor)
         val by = blurredSmall(yBytes, w, h, d)
@@ -119,7 +129,6 @@ class BackgroundBlur(strong: Boolean) : VideoProcessor {
         val bv = blurredSmall(vBytes, cw, ch, d)
 
         // 3. Blend: you from the sharp frame, the rest from the blur, soft at the edges.
-        val out = JavaI420Buffer.allocate(w, h)
         blend(yBytes, w, h, by, mask, mw, mh, out.dataY, out.strideY)
         blend(uBytes, cw, ch, bu, mask, mw, mh, out.dataU, out.strideU)
         blend(vBytes, cw, ch, bv, mask, mw, mh, out.dataV, out.strideV)
@@ -298,6 +307,84 @@ class BackgroundBlur(strong: Boolean) : VideoProcessor {
                 val b0 = bp[by0 + bx0[x]] + (bp[by0 + bx1[x]] - bp[by0 + bx0[x]]) * bfx[x]
                 val b1 = bp[by1 + bx0[x]] + (bp[by1 + bx1[x]] - bp[by1 + bx0[x]]) * bfx[x]
                 val bv = b0 + (b1 - b0) * bfy
+                row[x] = (s * a + bv * (1 - a) + 0.5f).toInt().coerceIn(0, 255).toByte()
+            }
+            d.position(y * dstStride)
+            d.put(row, 0, w)
+        }
+    }
+
+    // ───────────────────────── picture backgrounds ─────────────────────────
+
+    private var bgKey = ""
+    private var bgPlanes: Triple<ByteArray, ByteArray, ByteArray>? = null
+
+    /**
+     * The background picture as Y, U and V planes the size of the frame, in the frame's own
+     * orientation (so it looks upright once the frame is turned for display). Made once per size.
+     */
+    private fun backgroundPlanes(w: Int, h: Int, cw: Int, ch: Int, rotation: Int): Triple<ByteArray, ByteArray, ByteArray> {
+        val key = "$w x $h r $rotation"
+        bgPlanes?.let { if (bgKey == key) return it }
+        val img = image!!
+        // Upright size of the frame, then crop the picture to fill it (like "cover").
+        val uw = if (rotation % 180 == 0) w else h
+        val uh = if (rotation % 180 == 0) h else w
+        val scale = maxOf(uw.toFloat() / img.width, uh.toFloat() / img.height)
+        val sw = (img.width * scale).toInt().coerceAtLeast(uw)
+        val sh = (img.height * scale).toInt().coerceAtLeast(uh)
+        val scaled = Bitmap.createScaledBitmap(img, sw, sh, true)
+        val upright = Bitmap.createBitmap(scaled, (sw - uw) / 2, (sh - uh) / 2, uw, uh)
+        // Turn it back the other way so it matches the camera's raw orientation.
+        val m = android.graphics.Matrix().apply { postRotate(((360 - rotation) % 360).toFloat()) }
+        val framed = if (rotation != 0) Bitmap.createBitmap(upright, 0, 0, uw, uh, m, true) else upright
+        val px = IntArray(w * h)
+        framed.getPixels(px, 0, w, 0, 0, minOf(w, framed.width), minOf(h, framed.height))
+        val y = ByteArray(w * h)
+        val u = ByteArray(cw * ch)
+        val v = ByteArray(cw * ch)
+        for (row in 0 until h) for (col in 0 until w) {
+            val p = px[row * w + col]
+            val r = p shr 16 and 0xff
+            val g = p shr 8 and 0xff
+            val b = p and 0xff
+            y[row * w + col] = (((66 * r + 129 * g + 25 * b + 128) shr 8) + 16).toByte()
+            if (row and 1 == 0 && col and 1 == 0) {
+                val i = (row shr 1) * cw + (col shr 1)
+                u[i] = (((-38 * r - 74 * g + 112 * b + 128) shr 8) + 128).toByte()
+                v[i] = (((112 * r - 94 * g - 18 * b + 128) shr 8) + 128).toByte()
+            }
+        }
+        val out = Triple(y, u, v)
+        bgPlanes = out
+        bgKey = key
+        return out
+    }
+
+    /** Like [blend], but the background is a full-size plane (the picture) rather than a small blur. */
+    private fun blendFull(sharp: ByteArray, w: Int, h: Int, bg: ByteArray, mask: FloatArray, mw: Int, mh: Int, dst: ByteBuffer, dstStride: Int) {
+        val mx0 = IntArray(w); val mx1 = IntArray(w); val mfx = FloatArray(w)
+        for (x in 0 until w) {
+            val gx = (x + 0.5f) * mw / w - 0.5f
+            val jx = gx.toInt().coerceIn(0, mw - 1)
+            mx0[x] = jx; mx1[x] = min(mw - 1, jx + 1); mfx[x] = (gx - jx).coerceIn(0f, 1f)
+        }
+        val row = ByteArray(w)
+        val d = dst.duplicate()
+        for (y in 0 until h) {
+            val gy = (y + 0.5f) * mh / h - 0.5f
+            val jy = gy.toInt().coerceIn(0, mh - 1)
+            val my0 = jy * mw
+            val my1 = min(mh - 1, jy + 1) * mw
+            val mfy = (gy - jy).coerceIn(0f, 1f)
+            val o = y * w
+            for (x in 0 until w) {
+                val m0 = mask[my0 + mx0[x]] + (mask[my0 + mx1[x]] - mask[my0 + mx0[x]]) * mfx[x]
+                val m1 = mask[my1 + mx0[x]] + (mask[my1 + mx1[x]] - mask[my1 + mx0[x]]) * mfx[x]
+                var a = ((m0 + (m1 - m0) * mfy - 0.35f) * 3.3333f).coerceIn(0f, 1f)
+                a = a * a * (3 - 2 * a)
+                val s = sharp[o + x].toInt() and 0xff
+                val bv = bg[o + x].toInt() and 0xff
                 row[x] = (s * a + bv * (1 - a) + 0.5f).toInt().coerceIn(0, 255).toByte()
             }
             d.position(y * dstStride)

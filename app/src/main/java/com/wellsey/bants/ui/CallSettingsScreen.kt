@@ -1,5 +1,8 @@
 package com.wellsey.bants.ui
 
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.collectAsState
+
 import androidx.compose.foundation.horizontalScroll
 
 import androidx.compose.foundation.layout.Arrangement
@@ -38,6 +41,31 @@ fun CallSettingsScreen(nav: Navigator) {
     var camRes by remember { mutableStateOf(session.callCamRes) }
     var camFps by remember { mutableStateOf(session.callCamFps) }
     var codec by remember { mutableStateOf(session.callCodec) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val pickBg = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) scope.launch {
+            // Keep a copy (shrunk to 1280px) in the app's own storage.
+            runCatching {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val src = context.contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it) } ?: error("Couldn't read that picture")
+                    val sc = minOf(1f, 1280f / maxOf(src.width, src.height))
+                    val bmp = android.graphics.Bitmap.createScaledBitmap(src, (src.width * sc).toInt().coerceAtLeast(1), (src.height * sc).toInt().coerceAtLeast(1), true)
+                    val f = java.io.File(context.filesDir, "call-background.jpg")
+                    f.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, it) }
+                    f.absolutePath
+                }
+            }.onSuccess { session.callBgImage = it; blur = "image"; session.callBlur = "image" }.onFailure { toast(context, it.message) }
+        }
+    }
+    val me by Bants.me.collectAsState()
+    var soundKey by remember { mutableStateOf<String?>(null) }
+    val pickSound = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
+        val key = soundKey
+        if (uri != null && key != null) scope.launch {
+            runCatching { com.wellsey.bants.data.VoiceExtras.setOwnSound(context, key, uri) }.onSuccess { toast(context, "Saved") }.onFailure { toast(context, it.message) }
+        }
+    }
     var saver by remember { mutableStateOf(session.callDataSaver) }
 
     Scaffold(topBar = { ChunkyTopBar("Voice & video", nav) }) { padding ->
@@ -73,11 +101,14 @@ fun CallSettingsScreen(nav: Navigator) {
                 listOf("off" to "Off", "light" to "Light", "strong" to "Strong").forEach { (k, label) ->
                     ChunkyChip(label, blur == k) { blur = k; session.callBlur = k }
                 }
+                ChunkyChip("🖼 Picture", blur == "image") { if (session.callBgImage != null) { blur = "image"; session.callBlur = "image" } else pickBg.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) }
             }
+            if (blur == "image") ChunkyChip("Change picture", false) { pickBg.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) }
             Text(
                 when (blur) {
                     "off" -> "People see your camera as it is."
                     "strong" -> "Your background is blurred so much it's just colours. Nobody's seeing your washing."
+                    "image" -> "Your own picture behind you, like a virtual background."
                     else -> "Your background is softly blurred so you stand out."
                 },
                 style = MaterialTheme.typography.bodySmall, color = b.onCard,
@@ -117,6 +148,18 @@ fun CallSettingsScreen(nav: Navigator) {
                 style = MaterialTheme.typography.bodySmall, color = b.onCard,
             )
             Text("Both sides have to support a format to use it, otherwise the call quietly uses VP8.", style = MaterialTheme.typography.bodySmall, color = b.muted)
+
+            Heading("YOUR VOICE CHANNEL SOUNDS")
+            listOf("joinSound" to "When you join", "leaveSound" to "When you leave").forEach { (key, label) ->
+                val current = if (key == "joinSound") me?.joinSound else me?.leaveSound
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("$label: ${if (current != null) "your sound" else "none"}", color = b.onCard, modifier = Modifier.weight(1f))
+                    if (current != null) ChunkyChip("▶", false) { scope.launch { com.wellsey.bants.data.VoiceExtras.play(current, 0.8f) } }
+                    ChunkyChip(if (current != null) "Change" else "Pick", false) { soundKey = key; pickSound.launch("audio/*") }
+                    if (current != null) ChunkyChip("Remove", false) { scope.launch { runCatching { com.wellsey.bants.data.VoiceExtras.setOwnSound(context, key, null) } } }
+                }
+            }
+            Text("Everyone in the voice channel hears it. Keep it short: a few seconds, under 1 MB.", style = MaterialTheme.typography.bodySmall, color = b.muted)
 
             Heading("DATA")
             Toggle("Data saver on mobile data", "Sends a lighter picture when you're not on Wi-Fi. Voice is unaffected.", saver) { saver = it; session.callDataSaver = it }

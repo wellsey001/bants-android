@@ -5,6 +5,7 @@ import android.content.Intent
 import android.media.AudioManager
 import android.media.projection.MediaProjection
 import com.wellsey.bants.data.Bants
+import com.wellsey.bants.data.Servers
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -377,6 +378,15 @@ object CallManager {
         }
         val saver = sess.callDataSaver && onMobileData()
         val camRate = camBitrates[sess.callCamRes] ?: 1_500_000
+        // Voices: the channel's quality setting (32–256 kbps).
+        val kbps = state.value?.voiceChannelId?.let { Servers.channel(it)?.bitrate } ?: 64
+        p.pc?.senders?.firstOrNull { it.track()?.kind() == "audio" }?.let { sender ->
+            runCatching {
+                val params = sender.parameters
+                params.encodings.forEach { it.maxBitrateBps = (if (saver) minOf(kbps, 48) else kbps) * 1000 }
+                sender.setParameters(params)
+            }
+        }
         cap(p.camTx, if (saver) minOf(camRate, 450_000) else camRate, if (saver) minOf(sess.callCamFps, 20) else sess.callCamFps)
         val scale = if (screenFps >= 60) 1.6 else if (screenFps <= 15) 0.6 else 1.0
         val screenRate = ((screenBitrates[sess.callScreenRes] ?: 3_500_000) * scale).toInt()
@@ -566,10 +576,29 @@ object CallManager {
 
     fun toggleMute() {
         val s = state.value ?: return
-        audioTrack?.setEnabled(s.muted)
         state.value = s.copy(muted = !s.muted)
+        applyMic()
         sendVoiceState()
     }
+
+    /** On a stage, only speakers' mics go through. Set from the channel's live state. */
+    @Volatile var stageAudience = false
+        set(v) { field = v; applyMic() }
+
+    /** Mic on = not muted, and allowed to speak. */
+    fun applyMic() {
+        val s = state.value ?: return
+        audioTrack?.setEnabled(!s.muted && !stageAudience)
+    }
+
+    /** Soundboard: play one of the server's sounds (or a favourite) for everyone in your voice channel. */
+    fun playSound(soundId: Long) {
+        Bants.realtime.send(buildJsonObject { put("type", "voice.sound"); put("soundId", soundId) })
+    }
+
+    /** Stage: raise or lower your hand, or bring someone up / send them back to the audience. */
+    fun stageHand(raised: Boolean) { Bants.realtime.send(buildJsonObject { put("type", "stage.hand"); put("raised", raised) }) }
+    fun stageSpeaker(userId: Long, speaker: Boolean) { Bants.realtime.send(buildJsonObject { put("type", "stage.speaker"); put("userId", userId); put("speaker", speaker) }) }
 
     @Suppress("DEPRECATION")
     fun toggleSpeaker() {
@@ -596,7 +625,7 @@ object CallManager {
         val level = if (on) Bants.session.callBlur.takeIf { it != "off" } ?: "light" else "off"
         Bants.session.callBlur = level
         if (on) {
-            val p = BackgroundBlur(strong = level == "strong")
+            val p = BackgroundBlur(strong = level == "strong", image = if (level == "image") backgroundImage() else null)
             source.setVideoProcessor(p)
             blurProcessor?.dispose()
             blurProcessor = p
@@ -609,6 +638,10 @@ object CallManager {
         }
         state.value = s.copy(blur = on)
     }
+
+    /** Your chosen background picture, if you've set one. */
+    private fun backgroundImage(): android.graphics.Bitmap? =
+        Bants.session.callBgImage?.let { runCatching { android.graphics.BitmapFactory.decodeFile(it) }.getOrNull() }
 
     fun flipCamera() {
         val s = state.value ?: return
@@ -843,7 +876,7 @@ object CallManager {
         cam.initialize(helper, appContext, source.capturerObserver)
         val blur = Bants.session.callBlur
         if (blur != "off") {
-            blurProcessor = BackgroundBlur(strong = blur == "strong").also { source.setVideoProcessor(it) }
+            blurProcessor = BackgroundBlur(strong = blur == "strong", image = if (blur == "image") backgroundImage() else null).also { source.setVideoProcessor(it) }
             // Blurring every frame is hard work, so use a smaller picture while it's on.
             runCatching { cam.startCapture(minOf(width, 640), minOf(height, 480), minOf(fps, 24)) }
         } else {

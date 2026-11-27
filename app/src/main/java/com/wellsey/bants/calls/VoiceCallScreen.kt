@@ -24,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -133,13 +134,21 @@ fun VoiceCallScreen(c: CallUi, status: String, onOpenChat: () -> Unit) {
             if (flags[p.id]?.screen == true && t != null) add(StageTile("s${p.id}", "${p.name}'s screen", p.avatar, t, screen = true, mine = false, muted = false))
         }
     }
-    val people = buildList {
+    val stage = channel?.stage == true
+    val iSpeak = !stage || flags[me?.id ?: 0]?.speaker == true
+    val everyone = buildList {
         add(StageTile("me", me?.displayName ?: "You", me?.avatar, if (c.cameraOn) local else null, screen = false, mine = true, muted = c.muted, userId = me?.id ?: 0))
         c.participants.forEach { p ->
             val f = flags[p.id]
             add(StageTile("u${p.id}", p.name, p.avatar, if (f?.video == true) cams[p.id] else null, screen = false, mine = false, muted = f?.muted == true, userId = p.id))
         }
     }
+    // Stage channels: speakers get tiles, everyone else is in the audience row.
+    val people = if (stage) everyone.filter { flags[it.userId]?.speaker == true } else everyone
+    val audience = if (stage) everyone.filter { flags[it.userId]?.speaker != true } else emptyList()
+    val server = channel?.let { ch -> servers[ch.serverId] }
+    val isMod = server != null && (server.ownerId == me?.id || (channel.permissions and com.wellsey.bants.data.Perm.MUTE_MEMBERS) == com.wellsey.bants.data.Perm.MUTE_MEMBERS)
+    var soundboard by remember { mutableStateOf(false) }
     val talking by CallManager.speaking.collectAsState()
     val pip by CallManager.inPip.collectAsState()
     var theatre by remember { mutableStateOf(false) }
@@ -276,6 +285,31 @@ fun VoiceCallScreen(c: CallUi, status: String, onOpenChat: () -> Unit) {
             }
         }
 
+        if (stage) {
+            val hands = audience.filter { flags[it.userId]?.hand == true && !it.mine }
+            Text("AUDIENCE — ${audience.size}", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(start = 16.dp, top = 8.dp))
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                audience.forEach { t ->
+                    Box(Modifier.size(46.dp).combinedClickable(onClick = {}, onLongClick = if (isMod && !t.mine) ({ CallManager.stageSpeaker(t.userId, true) }) else null)) {
+                        Avatar(t.name, t.avatar, size = 42.dp)
+                        if (flags[t.userId]?.hand == true) Text("✋", fontSize = 16.sp, modifier = Modifier.align(Alignment.TopEnd))
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (iSpeak) ChunkyChip("⬇️ Leave the stage", false) { me?.id?.let { CallManager.stageSpeaker(it, false) } }
+                else {
+                    val raised = flags[me?.id ?: 0]?.hand == true
+                    ChunkyChip(if (raised) "✋ Lower hand" else "✋ Raise hand", raised) { CallManager.stageHand(!raised) }
+                }
+                if (isMod && hands.isNotEmpty()) ChunkyChip("Invite ${hands.size} to speak", true) { hands.forEach { CallManager.stageSpeaker(it.userId, true) } }
+            }
+            if (isMod) Text("Long-press someone in the audience to bring them up to speak.", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp, modifier = Modifier.padding(start = 16.dp, top = 4.dp))
+        }
+
         if (theatre) {
             Row(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
@@ -319,6 +353,11 @@ fun VoiceCallScreen(c: CallUi, status: String, onOpenChat: () -> Unit) {
                         text = { Text(if (c.blur) "Background blur off" else "Blur background") }, leadingIcon = { Icon(if (c.blur) Icons.Default.BlurOff else Icons.Default.BlurOn, null) }, enabled = c.cameraOn,
                         onClick = { more = false; CallManager.toggleBlur() },
                     )
+                    if (channel != null) DropdownMenuItem(
+                        text = { Text("Soundboard") }, leadingIcon = { Icon(Icons.Default.GraphicEq, null) },
+                        enabled = iSpeak,
+                        onClick = { more = false; soundboard = true },
+                    )
                     if (screenTiles.isNotEmpty()) DropdownMenuItem(
                         text = { Text(if (theatre) "Leave theatre mode" else "Theatre mode") }, leadingIcon = { Icon(Icons.Default.Theaters, null) },
                         onClick = { more = false; theatre = !theatre; if (theatre) focus = screenTiles.firstOrNull { !it.mine }?.key ?: screenTiles.first().key },
@@ -334,6 +373,10 @@ fun VoiceCallScreen(c: CallUi, status: String, onOpenChat: () -> Unit) {
     }
 
     volumeFor?.let { t -> VolumeDialog(t.userId, t.name) { volumeFor = null } }
+    if (soundboard && channel != null) com.wellsey.bants.ui.SoundboardSheet(channel.serverId, onManage = {
+        soundboard = false
+        toast(context, "Manage sounds from the server's menu → Soundboard")
+    }) { soundboard = false }
 
     if (askingQuality) ScreenQualityDialog(
         others = c.participants.size,

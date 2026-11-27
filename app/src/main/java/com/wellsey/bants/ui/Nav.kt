@@ -49,6 +49,7 @@ sealed interface Screen {
     data class Events(val serverId: Long) : Screen
     data class ServerEmojis(val serverId: Long) : Screen
     data class Webhooks(val channelId: Long) : Screen
+    data class Soundboard(val serverId: Long) : Screen
 }
 
 /** A tiny back stack: enough for this app without pulling in a navigation library. */
@@ -138,6 +139,7 @@ fun BantsRoot(openConversation: MutableStateFlow<Long?>) {
         is Screen.Events -> key(screen.serverId) { EventsScreen(screen.serverId, nav) }
         is Screen.ServerEmojis -> key(screen.serverId) { ServerEmojisScreen(screen.serverId, nav) }
         is Screen.Webhooks -> key(screen.channelId) { WebhooksScreen(screen.channelId, nav) }
+        is Screen.Soundboard -> key(screen.serverId) { SoundboardScreen(screen.serverId, nav) }
         is Screen.ServerSettings -> key(screen.id) { ServerSettingsScreen(screen.id, nav) }
         is Screen.ServerRoles -> key(screen.id) { ServerRolesScreen(screen.id, nav) }
         is Screen.RoleEdit -> key(screen.serverId, screen.roleId) { RoleEditScreen(screen.serverId, screen.roleId, nav) }

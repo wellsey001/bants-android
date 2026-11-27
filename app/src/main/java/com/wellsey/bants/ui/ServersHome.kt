@@ -1,5 +1,7 @@
 package com.wellsey.bants.ui
 
+import androidx.compose.material.icons.filled.GraphicEq
+
 import androidx.compose.material.icons.filled.Search
 
 import androidx.compose.material.icons.filled.EditNote
@@ -384,6 +386,7 @@ fun ServerScreen(serverId: Long, nav: Navigator) {
                     DropdownMenuItem(text = { Text("Edit server profile") }, leadingIcon = { Icon(Icons.Default.Badge, null) }, onClick = { menu = false; nav.go(Screen.ServerProfile(serverId)) })
                     DropdownMenuItem(text = { Text("Events") }, leadingIcon = { Icon(Icons.Default.Event, null) }, onClick = { menu = false; nav.go(Screen.Events(serverId)) })
                     if (s.rules.isNotBlank()) DropdownMenuItem(text = { Text("Server rules") }, leadingIcon = { Icon(Icons.Default.Gavel, null) }, onClick = { menu = false; showRules = true })
+                    DropdownMenuItem(text = { Text("Soundboard") }, leadingIcon = { Icon(Icons.Default.GraphicEq, null) }, onClick = { menu = false; nav.go(Screen.Soundboard(serverId)) })
                     DropdownMenuItem(text = { Text("Server emojis") }, leadingIcon = { Icon(Icons.Default.AddReaction, null) }, onClick = { menu = false; nav.go(Screen.ServerEmojis(serverId)) })
                     DropdownMenuItem(text = { Text("Your emojis") }, leadingIcon = { Icon(Icons.Default.EmojiEmotions, null) }, onClick = { menu = false; nav.go(Screen.Emojis) })
                     if (perms.has(Perm.MANAGE_SERVER)) DropdownMenuItem(text = { Text("Rules & welcome") }, leadingIcon = { Icon(Icons.Default.EditNote, null) }, onClick = { menu = false; editingRules = true })
@@ -505,7 +508,7 @@ fun VoiceBar(modifier: Modifier = Modifier, onChat: ((Long) -> Unit)? = null) {
 }
 
 fun channelIcon(c: ServerChannel): ImageVector = when (c.type) {
-    "voice" -> Icons.AutoMirrored.Filled.VolumeUp
+    "voice" -> if (c.stage) Icons.Default.Mic else Icons.AutoMirrored.Filled.VolumeUp
     "announcement" -> Icons.Default.Campaign
     "forum" -> Icons.Default.Forum
     else -> Icons.Default.Tag
@@ -704,6 +707,7 @@ private fun CreateChannelDialog(s: BantsServer, parentId: Long?, onDismiss: () -
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     ChunkyChip("Text", type == "text") { type = "text" }
                     ChunkyChip("Voice", type == "voice") { type = "voice" }
+                    ChunkyChip("Stage", type == "stage") { type = "stage" }
                     ChunkyChip("News", type == "announcement") { type = "announcement" }
                     ChunkyChip("Forum", type == "forum") { type = "forum" }
                 }
@@ -752,6 +756,7 @@ private fun EditChannelDialog(c: ServerChannel, nav: Navigator, onDismiss: () ->
     var name by remember { mutableStateOf(c.name) }
     var topic by remember { mutableStateOf(c.topic) }
     var slow by remember { mutableStateOf(c.slowmode) }
+    var bitrate by remember { mutableStateOf(c.bitrate) }
     var confirmDelete by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -766,6 +771,13 @@ private fun EditChannelDialog(c: ServerChannel, nav: Navigator, onDismiss: () ->
                         slowmodes.forEach { (secs, label) -> ChunkyChip(label, slow == secs) { slow = secs } }
                     }
                 }
+                if (c.type == "voice") {
+                    Text("Voice quality", fontWeight = FontWeight.Bold)
+                    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(32 to "32 kbps", 64 to "64", 96 to "96", 128 to "128", 256 to "256 studio").forEach { (k, l) -> ChunkyChip(l, bitrate == k) { bitrate = k } }
+                    }
+                    Text("Higher sounds better but uses more data for everyone in here.", fontSize = 12.sp, color = LocalBants.current.muted)
+                }
                 if (c.type == "text" || c.type == "announcement") {
                     TextButton(onClick = { onDismiss(); nav.go(Screen.Webhooks(c.id)) }) { Text("🤖 Webhooks…", fontWeight = FontWeight.Bold) }
                 }
@@ -777,7 +789,7 @@ private fun EditChannelDialog(c: ServerChannel, nav: Navigator, onDismiss: () ->
         confirmButton = {
             TextButton(enabled = name.isNotBlank(), onClick = {
                 scope.launch {
-                    runCatching { Servers.editChannel(c.id, name, topic, slow) }
+                    runCatching { Servers.editChannel(c.id, name, topic, slow, if (c.type == "voice") bitrate else null) }
                         .onSuccess { onDismiss() }
                         .onFailure { toast(context, it.message) }
                 }

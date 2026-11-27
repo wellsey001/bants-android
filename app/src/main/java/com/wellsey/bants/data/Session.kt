@@ -63,6 +63,11 @@ class Session(context: Context) {
         get() = prefs.getString("callBlur", "off") ?: "off"
         set(value) = prefs.edit().putString("callBlur", value).apply()
 
+    /** The picture behind you when the camera background is "image" (a file in the app's storage). */
+    var callBgImage: String?
+        get() = prefs.getString("callBgImage", null)
+        set(value) = prefs.edit().putString("callBgImage", value).apply()
+
     /** Which video format calls ask for first: "auto" (VP8), "vp9", "h264" or "av1". */
     var callCodec: String
         get() = prefs.getString("callCodec", "auto") ?: "auto"

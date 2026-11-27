@@ -397,11 +397,12 @@ object Servers {
         return c
     }
 
-    suspend fun editChannel(channelId: Long, name: String, topic: String, slowmode: Int) {
+    suspend fun editChannel(channelId: Long, name: String, topic: String, slowmode: Int, bitrate: Int? = null) {
         val c = api.patch<ServerChannel>("/api/channels/$channelId", buildJsonObject {
             put("name", name.trim())
             put("topic", topic.trim())
             put("slowmode", slowmode)
+            bitrate?.let { put("bitrate", it) }
         })
         runCatching { refreshServer(c.serverId) }
     }

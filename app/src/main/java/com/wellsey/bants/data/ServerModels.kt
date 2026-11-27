@@ -45,11 +45,17 @@ data class ServerChannel(
     val firstMessage: ChannelMessage? = null,
     /** Your notifications here: "all", "mentions", "none", or null for the server's default. */
     val notify: String? = null,
+    /** Voice: how good voices sound in here (kbps), and whether it's a stage. */
+    val bitrate: Int = 64,
+    val stage: Boolean = false,
     val createdAt: Long = 0,
 )
 
 @Serializable
-data class VoiceMember(val id: Long, val muted: Boolean = false, val deafened: Boolean = false, val video: Boolean = false, val screen: Boolean = false)
+data class VoiceMember(val id: Long, val muted: Boolean = false, val deafened: Boolean = false, val video: Boolean = false, val screen: Boolean = false, val speaker: Boolean = false, val hand: Boolean = false)
+
+@Serializable
+data class ServerSound(val id: Long, val serverId: Long = 0, val name: String, val emoji: String = "🔊", val media: String, val volume: Float = 1f, val favourite: Boolean = false)
 
 @Serializable
 data class ServerMe(
