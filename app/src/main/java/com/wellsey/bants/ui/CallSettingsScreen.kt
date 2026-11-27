@@ -1,5 +1,7 @@
 package com.wellsey.bants.ui
 
+import androidx.compose.foundation.horizontalScroll
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -35,6 +37,8 @@ fun CallSettingsScreen(nav: Navigator) {
     var blur by remember { mutableStateOf(session.callBlur) }
     var camRes by remember { mutableStateOf(session.callCamRes) }
     var camFps by remember { mutableStateOf(session.callCamFps) }
+    var codec by remember { mutableStateOf(session.callCodec) }
+    var saver by remember { mutableStateOf(session.callDataSaver) }
 
     Scaffold(topBar = { ChunkyTopBar("Voice & video", nav) }) { padding ->
         Column(
@@ -97,9 +101,29 @@ fun CallSettingsScreen(nav: Navigator) {
                 style = MaterialTheme.typography.bodySmall, color = b.muted,
             )
 
+            Heading("VIDEO FORMAT")
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("auto" to "Auto (VP8)", "vp9" to "VP9", "h264" to "H.264", "av1" to "AV1").forEach { (k, label) ->
+                    ChunkyChip(label, codec == k) { codec = k; session.callCodec = k }
+                }
+            }
+            Text(
+                when (codec) {
+                    "vp9" -> "Sharper for the same data, but works your phone harder and uses more battery."
+                    "h264" -> "Easiest on the battery because your phone's video chip does the work. Some phones don't get on with each other's H.264, so if someone's picture goes black, switch back to Auto."
+                    "av1" -> "Best picture for the data, on phones that can send it. Phones that can't fall back to VP8 by themselves."
+                    else -> "The safe choice: every phone and the desktop app can always show it."
+                },
+                style = MaterialTheme.typography.bodySmall, color = b.onCard,
+            )
+            Text("Both sides have to support a format to use it, otherwise the call quietly uses VP8.", style = MaterialTheme.typography.bodySmall, color = b.muted)
+
+            Heading("DATA")
+            Toggle("Data saver on mobile data", "Sends a lighter picture when you're not on Wi-Fi. Voice is unaffected.", saver) { saver = it; session.callDataSaver = it }
+
             ChunkyCard(Modifier.fillMaxWidth(), shadow = 0.dp) {
                 Text(
-                    "Noise and mic changes apply from your next call or voice channel. Blur changes straight away.",
+                    "Noise, mic and video format changes apply from your next call or voice channel. Blur changes straight away. Long-press someone in a voice channel to change how loud they are for you.",
                     style = MaterialTheme.typography.bodySmall,
                     color = b.muted,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),

@@ -50,7 +50,9 @@
             android:excludeFromRecents="true"
             android:showWhenLocked="true"
             android:turnScreenOn="true"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden" />
 
         <service
             android:name=".calls.CallService"

@@ -1,5 +1,7 @@
 package com.wellsey.bants.ui
 
+import androidx.compose.foundation.border
+
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.filled.Badge
@@ -483,11 +485,15 @@ private fun ChannelRow(c: ServerChannel, members: List<ServerMember>, onProfile:
     Column {
         ChannelRowInner(c, onLongClick, onClick)
         // Who's in a voice channel, Discord-style, under its name.
+        val talking by com.wellsey.bants.calls.CallManager.speaking.collectAsState()
         c.voiceMembers.forEach { v ->
             val m = members.firstOrNull { it.user.id == v.id }
             val b = LocalBants.current
             Row(Modifier.padding(start = 34.dp).clip(RoundedCornerShape(10.dp)).clickable { onProfile(v.id) }.padding(start = 6.dp, top = 2.dp, bottom = 2.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Avatar(m?.user?.displayName ?: "?", m?.shownAvatar, size = 24.dp, outlined = false)
+                // Green ring while they're talking (for the call you're in).
+                Box(Modifier.border(2.dp, if (v.id in talking) OnlineGreen else Color.Transparent, CircleShape).padding(2.dp)) {
+                    Avatar(m?.user?.displayName ?: "?", m?.shownAvatar, size = 24.dp, outlined = false)
+                }
                 Spacer(Modifier.width(8.dp))
                 Text(m?.shownName() ?: "Someone", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = b.onCard, modifier = Modifier.weight(1f, fill = false))
                 if (v.screen) {

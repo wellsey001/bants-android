@@ -119,11 +119,36 @@ class CallActivity : ComponentActivity() {
 
     override fun onDestroy() {
         setProximity(false)
+        CallManager.inPip.value = false
         super.onDestroy()
+    }
+
+    /** Leave the app during a call and it carries on in a little floating window. */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (skipPip) { skipPip = false; return }
+        val c = CallManager.state.value ?: return
+        if (c.status != CallStatus.Active || Build.VERSION.SDK_INT < 26) return
+        if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return
+        runCatching {
+            val wide = CallManager.remoteScreens.value.isNotEmpty()
+            enterPictureInPictureMode(
+                android.app.PictureInPictureParams.Builder()
+                    .setAspectRatio(if (wide) android.util.Rational(16, 9) else android.util.Rational(9, 16))
+                    .build(),
+            )
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        CallManager.inPip.value = isInPictureInPictureMode
     }
 
     companion object {
         const val ACTION_ANSWER = "com.wellsey.bants.ANSWER_CALL"
+        /** Set when we open the app ourselves (the chat button), so that doesn't shrink the call. */
+        @Volatile var skipPip = false
     }
 }
 
@@ -176,11 +201,24 @@ private fun CallScreen(answerNow: Boolean, onDone: () -> Unit, onProximity: (Boo
         VoiceCallScreen(c, status) {
             // Jump to the voice channel's text chat in the main app; the call keeps going.
             Servers.openChannelRequest.value = c.voiceChannelId
+            CallActivity.skipPip = true
             context.startActivity(
                 android.content.Intent(context, com.wellsey.bants.MainActivity::class.java)
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
             )
             onDone()
+        }
+        return
+    }
+    val pip by CallManager.inPip.collectAsState()
+    if (pip) {
+        Box(Modifier.fillMaxSize().background(if (remote != null && c.video) Color.Black else BantsPurple), contentAlignment = Alignment.Center) {
+            val r = remote
+            if (r != null && c.video) VideoView(r, mirror = false, modifier = Modifier.fillMaxSize())
+            else Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                com.wellsey.bants.ui.Avatar(c.peerName, c.peerAvatar, size = 56.dp)
+                Text(formatDuration(now - (c.answeredAt ?: now)), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+            }
         }
         return
     }

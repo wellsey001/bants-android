@@ -136,9 +136,78 @@ object CallManager {
         var camTx: RtpTransceiver? = null
         var screenTx: RtpTransceiver? = null
         var screenAudioTx: RtpTransceiver? = null
+        /** Their voice (and screen sound), so you can turn them up, down or off just for you. */
+        val audio = mutableListOf<AudioTrack>()
     }
 
     private val peers = java.util.concurrent.ConcurrentHashMap<Long, Peer>()
+
+    /** Who's talking right now in the call (your own id included). Drives the green rings. */
+    val speaking = MutableStateFlow<Set<Long>>(emptySet())
+    private val lastLoud = java.util.concurrent.ConcurrentHashMap<Long, Long>()
+    private var speakingLoop: Job? = null
+
+    /** True while the call screen is a little picture-in-picture window. */
+    val inPip = MutableStateFlow(false)
+
+    private fun startSpeakingLoop() {
+        if (speakingLoop?.isActive == true) return
+        speakingLoop = scope.launch {
+            while (true) {
+                delay(220)
+                val s = state.value
+                if (s == null || s.status != CallStatus.Active) {
+                    if (speaking.value.isNotEmpty()) speaking.value = emptySet()
+                    continue
+                }
+                val now = System.currentTimeMillis()
+                val me = Bants.myId
+                for (p in peers.values) {
+                    val conn = p.pc ?: continue
+                    val report = withTimeoutOrNull(800) {
+                        kotlinx.coroutines.suspendCancellableCoroutine<org.webrtc.RTCStatsReport?> { k ->
+                            runCatching { conn.getStats { r -> if (k.isActive) k.resumeWith(Result.success(r)) } }
+                                .onFailure { if (k.isActive) k.resumeWith(Result.success(null)) }
+                        }
+                    } ?: continue
+                    val micMid = conn.transceivers.firstOrNull { it.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO }?.mid
+                    var theirs = 0.0
+                    var mine = 0.0
+                    for (st in report.statsMap.values) {
+                        val m = st.members
+                        if (m["kind"] != "audio") continue
+                        val level = (m["audioLevel"] as? Number)?.toDouble() ?: continue
+                        when (st.type) {
+                            "inbound-rtp" -> if (m["mid"] == null || m["mid"] == micMid) theirs = maxOf(theirs, level)
+                            "media-source" -> mine = maxOf(mine, level)
+                        }
+                    }
+                    if (theirs > 0.04) lastLoud[p.userId] = now
+                    if (mine > 0.04 && !s.muted) lastLoud[me] = now
+                }
+                val set = lastLoud.filter { now - it.value < 450 }.keys.toSet()
+                if (set != speaking.value) speaking.value = set
+            }
+        }
+    }
+
+    /** Turn someone up, down or off, just for you. Remembered for next time. */
+    fun setUserVolume(userId: Long, volume: Float, muted: Boolean) {
+        Bants.session.setUserVolume(userId, volume, muted)
+        peers[userId]?.let { applyVolume(it) }
+    }
+
+    private fun applyVolume(p: Peer) {
+        val sess = Bants.session
+        // WebRTC's volume is a gain: 1 = as sent, up to 10. We offer 0–200%.
+        val v = if (sess.userMuted(p.userId)) 0.0 else (sess.userVolume(p.userId).toDouble() * 2.5).coerceIn(0.0, 5.0)
+        p.audio.forEach { runCatching { it.setVolume(v) } }
+    }
+
+    private fun onMobileData(): Boolean = runCatching {
+        val cm = appContext.getSystemService(android.net.ConnectivityManager::class.java)
+        cm.isActiveNetworkMetered
+    }.getOrDefault(false)
 
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -306,9 +375,12 @@ object CallManager {
                 sender.setParameters(params)
             }
         }
-        cap(p.camTx, camBitrates[sess.callCamRes] ?: 1_500_000, sess.callCamFps)
+        val saver = sess.callDataSaver && onMobileData()
+        val camRate = camBitrates[sess.callCamRes] ?: 1_500_000
+        cap(p.camTx, if (saver) minOf(camRate, 450_000) else camRate, if (saver) minOf(sess.callCamFps, 20) else sess.callCamFps)
         val scale = if (screenFps >= 60) 1.6 else if (screenFps <= 15) 0.6 else 1.0
-        cap(p.screenTx, ((screenBitrates[sess.callScreenRes] ?: 3_500_000) * scale).toInt(), screenFps)
+        val screenRate = ((screenBitrates[sess.callScreenRes] ?: 3_500_000) * scale).toInt()
+        cap(p.screenTx, if (saver) minOf(screenRate, 1_200_000) else screenRate, if (saver) minOf(screenFps, 15) else screenFps)
     }
 
     private fun fillCamSlot(track: VideoTrack?) {
@@ -684,6 +756,7 @@ object CallManager {
     private val gate = NoiseGate()
 
     private fun ensureFactory(): PeerConnectionFactory {
+        startSpeakingLoop()
         val sess = Bants.session
         // The phone's own echo/noise filters are set when the audio module is made, so a
         // settings change means a fresh one (only between calls, never mid-call).
@@ -723,13 +796,16 @@ object CallManager {
     private fun preferVp8(conn: PeerConnection) {
         val f = factory ?: return
         val caps = runCatching { f.getRtpReceiverCapabilities(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO).codecs }.getOrNull() ?: return
+        // Your pick from settings goes first; VP8 is always next as the safe fallback.
+        val first = when (Bants.session.callCodec) { "vp9" -> "VP9"; "h264" -> "H264"; "av1" -> "AV1"; else -> "VP8" }
         val rank = { c: org.webrtc.RtpCapabilities.CodecCapability ->
             when (c.name.uppercase()) {
-                "VP8" -> 0
-                "VP9" -> 1
-                "H264" -> 2
-                "AV1" -> 3
-                else -> 4 // rtx, red, ulpfec: keep them, after the real codecs
+                first -> 0
+                "VP8" -> 1
+                "VP9" -> 2
+                "H264" -> 3
+                "AV1" -> 4
+                else -> 5 // rtx, red, ulpfec: keep them, after the real codecs
             }
         }
         val ordered = caps.sortedBy(rank)
@@ -960,6 +1036,11 @@ object CallManager {
 
         override fun onTrack(transceiver: RtpTransceiver) {
             val track = transceiver.receiver.track()
+            if (track is AudioTrack) {
+                p.audio += track
+                applyVolume(p)
+                return
+            }
             if (track is VideoTrack) scope.launch {
                 if (state.value?.voiceChannelId != null) {
                     // Voice channels: second video slot = their screen, first = their camera.

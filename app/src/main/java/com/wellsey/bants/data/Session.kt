@@ -63,6 +63,22 @@ class Session(context: Context) {
         get() = prefs.getString("callBlur", "off") ?: "off"
         set(value) = prefs.edit().putString("callBlur", value).apply()
 
+    /** Which video format calls ask for first: "auto" (VP8), "vp9", "h264" or "av1". */
+    var callCodec: String
+        get() = prefs.getString("callCodec", "auto") ?: "auto"
+        set(value) = prefs.edit().putString("callCodec", value).apply()
+
+    /** Send lighter video when on mobile data. */
+    var callDataSaver: Boolean
+        get() = prefs.getBoolean("callDataSaver", true)
+        set(value) = prefs.edit().putBoolean("callDataSaver", value).apply()
+
+    /** How loud someone is for you in calls (0–2, 1 = normal). */
+    fun userVolume(userId: Long): Float = prefs.getFloat("vol_$userId", 1f)
+    fun userMuted(userId: Long): Boolean = prefs.getBoolean("mutedFor_$userId", false)
+    fun setUserVolume(userId: Long, volume: Float, muted: Boolean) =
+        prefs.edit().putFloat("vol_$userId", volume).putBoolean("mutedFor_$userId", muted).apply()
+
     /** Bants' own call ringtones, or false for the phone's ringtone. */
     var bantsRingtone: Boolean
         get() = prefs.getBoolean("bantsRingtone", true)

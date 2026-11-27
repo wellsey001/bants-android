@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package com.wellsey.bants.calls
 
 import android.Manifest
@@ -9,6 +11,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.Theaters
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import androidx.compose.runtime.mutableFloatStateOf
+import com.wellsey.bants.ui.OnlineGreen
+import kotlin.math.roundToInt
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.aspectRatio
@@ -84,7 +95,7 @@ import com.wellsey.bants.ui.toast
 import org.webrtc.VideoTrack
 
 /** One thing on the voice stage: a person (camera or face) or a screen share. */
-private data class StageTile(val key: String, val name: String, val avatar: String?, val track: VideoTrack?, val screen: Boolean, val mine: Boolean, val muted: Boolean)
+private data class StageTile(val key: String, val name: String, val avatar: String?, val track: VideoTrack?, val screen: Boolean, val mine: Boolean, val muted: Boolean, val userId: Long = 0)
 
 /**
  * The call screen for voice channels: screen shares big at the top (tap to switch between them),
@@ -123,14 +134,34 @@ fun VoiceCallScreen(c: CallUi, status: String, onOpenChat: () -> Unit) {
         }
     }
     val people = buildList {
-        add(StageTile("me", me?.displayName ?: "You", me?.avatar, if (c.cameraOn) local else null, screen = false, mine = true, muted = c.muted))
+        add(StageTile("me", me?.displayName ?: "You", me?.avatar, if (c.cameraOn) local else null, screen = false, mine = true, muted = c.muted, userId = me?.id ?: 0))
         c.participants.forEach { p ->
             val f = flags[p.id]
-            add(StageTile("u${p.id}", p.name, p.avatar, if (f?.video == true) cams[p.id] else null, screen = false, mine = false, muted = f?.muted == true))
+            add(StageTile("u${p.id}", p.name, p.avatar, if (f?.video == true) cams[p.id] else null, screen = false, mine = false, muted = f?.muted == true, userId = p.id))
         }
     }
+    val talking by CallManager.speaking.collectAsState()
+    val pip by CallManager.inPip.collectAsState()
+    var theatre by remember { mutableStateOf(false) }
+    var volumeFor by remember { mutableStateOf<StageTile?>(null) }
+    LaunchedEffect(screenTiles.isEmpty()) { if (screenTiles.isEmpty()) theatre = false }
+
+    // Picture-in-picture: just the most interesting picture, no controls.
+    if (pip) {
+        val show = screenTiles.firstOrNull { !it.mine } ?: people.firstOrNull { !it.mine && it.track != null } ?: people.firstOrNull { it.track != null }
+        Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+            if (show?.track != null) VideoTile(show.track, mirror = show.mine && !show.screen && c.frontCamera, fit = show.screen, modifier = Modifier.fillMaxSize())
+            else Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Avatar(c.peerName, null, size = 56.dp)
+                Text(status, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
+            }
+        }
+        return
+    }
+
     // Everything on the stage: screen shares first, then people. Like Discord, tap any tile to focus it.
-    val tiles = screenTiles + people
+    // Theatre mode: just the stream, with everyone as little faces underneath.
+    val tiles = if (theatre) screenTiles else screenTiles + people
     // Someone else going live gets focused automatically, until you pick something else.
     var autoFocused by remember { mutableStateOf<String?>(null) }
     val liveKey = screenTiles.firstOrNull { !it.mine }?.key
@@ -142,10 +173,20 @@ fun VoiceCallScreen(c: CallUi, status: String, onOpenChat: () -> Unit) {
     @Composable
     fun Tile(t: StageTile, modifier: Modifier, small: Boolean = false) {
         key(t.key) {
+            val loud = !t.screen && t.userId in talking
             Box(
                 modifier
-                    .chunky(RoundedCornerShape(if (small) 12.dp else 16.dp), if (t.track != null) Color.Black else Color(0xFF2A2833), if (t.key == focus && small) BantsYellow else BantsInk, shadow = 0.dp, border = 2.dp)
-                    .clickable { focus = if (focus == t.key) null else t.key },
+                    .chunky(
+                        RoundedCornerShape(if (small) 12.dp else 16.dp),
+                        if (t.track != null) Color.Black else Color(0xFF2A2833),
+                        if (loud) OnlineGreen else if (t.key == focus && small) BantsYellow else BantsInk,
+                        shadow = 0.dp, border = if (loud) 4.dp else 2.dp,
+                    )
+                    .combinedClickable(
+                        onClick = { focus = if (focus == t.key) null else t.key },
+                        // Long-press someone to turn them up or down, just for you.
+                        onLongClick = if (!t.mine && !t.screen) ({ volumeFor = t }) else null,
+                    ),
                 contentAlignment = Alignment.Center,
             ) {
                 if (t.track != null) {
@@ -235,6 +276,21 @@ fun VoiceCallScreen(c: CallUi, status: String, onOpenChat: () -> Unit) {
             }
         }
 
+        if (theatre) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                people.forEach { t ->
+                    val loud = t.userId in talking
+                    Box(
+                        Modifier.size(46.dp).border(if (loud) 3.dp else 0.dp, if (loud) OnlineGreen else Color.Transparent, CircleShape).padding(3.dp)
+                            .combinedClickable(onClick = {}, onLongClick = if (!t.mine) ({ volumeFor = t }) else null),
+                    ) { Avatar(t.name, t.avatar, size = 40.dp) }
+                }
+            }
+        }
+
         // Controls: the everyday ones on the bar, camera extras under ⋯ so nothing falls off the edge.
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 14.dp),
@@ -263,6 +319,10 @@ fun VoiceCallScreen(c: CallUi, status: String, onOpenChat: () -> Unit) {
                         text = { Text(if (c.blur) "Background blur off" else "Blur background") }, leadingIcon = { Icon(if (c.blur) Icons.Default.BlurOff else Icons.Default.BlurOn, null) }, enabled = c.cameraOn,
                         onClick = { more = false; CallManager.toggleBlur() },
                     )
+                    if (screenTiles.isNotEmpty()) DropdownMenuItem(
+                        text = { Text(if (theatre) "Leave theatre mode" else "Theatre mode") }, leadingIcon = { Icon(Icons.Default.Theaters, null) },
+                        onClick = { more = false; theatre = !theatre; if (theatre) focus = screenTiles.firstOrNull { !it.mine }?.key ?: screenTiles.first().key },
+                    )
                     if (focus != null) DropdownMenuItem(
                         text = { Text("Show everyone") }, leadingIcon = { Icon(Icons.Default.GridView, null) },
                         onClick = { more = false; focus = null },
@@ -272,6 +332,8 @@ fun VoiceCallScreen(c: CallUi, status: String, onOpenChat: () -> Unit) {
             ChunkyIconButton(Icons.Default.CallEnd, "Leave voice", { CallManager.hangUp() }, fill = BantsPink, tint = BantsInk, size = sz)
         }
     }
+
+    volumeFor?.let { t -> VolumeDialog(t.userId, t.name) { volumeFor = null } }
 
     if (askingQuality) ScreenQualityDialog(
         others = c.participants.size,
@@ -330,5 +392,30 @@ private fun ScreenQualityDialog(others: Int, onDismiss: () -> Unit, onGo: (Strin
         },
         confirmButton = { TextButton(onClick = { onGo(res, fps) }) { Text("Go live", fontWeight = FontWeight.ExtraBold) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/** Turn one person up, down or off, just for you (like Discord's user volume). */
+@Composable
+private fun VolumeDialog(userId: Long, name: String, onDismiss: () -> Unit) {
+    val sess = Bants.session
+    var vol by remember { mutableFloatStateOf(sess.userVolume(userId)) }
+    var muted by remember { mutableStateOf(sess.userMuted(userId)) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(name) },
+        text = {
+            Column {
+                Text("Volume: ${(vol * 100).roundToInt()}%", fontWeight = FontWeight.Bold)
+                Slider(value = vol, onValueChange = { vol = it; CallManager.setUserVolume(userId, it, muted) }, valueRange = 0f..2f, steps = 19)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Mute them for me", modifier = Modifier.weight(1f))
+                    Switch(checked = muted, onCheckedChange = { muted = it; CallManager.setUserVolume(userId, vol, it) })
+                }
+                Text("Only changes what you hear. They won't know.", fontSize = 12.sp, color = Color.Gray)
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+        dismissButton = { TextButton(onClick = { vol = 1f; muted = false; CallManager.setUserVolume(userId, 1f, false) }) { Text("Reset") } },
     )
 }
