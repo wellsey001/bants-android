@@ -123,11 +123,26 @@ data class MemberUser(
     val displayName: String,
     val avatar: String? = null,
     val about: String = "",
+    val banner: String? = null,
+    val accentColour: Long? = null,
+    val pronouns: String = "",
+    val customStatus: String = "",
+    val statusEmoji: String = "",
+)
+
+/** Someone's profile in one server. Empty bits fall back to their main profile. */
+@Serializable
+data class ServerProfile(
+    val avatar: String? = null,
+    val banner: String? = null,
+    val bio: String = "",
+    val pronouns: String = "",
 )
 
 @Serializable
 data class ServerMember(
     val user: MemberUser,
+    val serverProfile: ServerProfile = ServerProfile(),
     val nickname: String? = null,
     val roleIds: List<Long> = emptyList(),
     val joinedAt: Long = 0,
@@ -226,3 +241,57 @@ fun ServerMember.shownName(): String = nickname?.takeIf { it.isNotBlank() } ?: u
 
 /** Text, announcement and thread channels hold messages; categories and voice channels don't. */
 val ServerChannel.isTextLike: Boolean get() = type == "text" || type == "announcement" || type == "thread"
+
+
+@Serializable
+data class MutualServer(val id: Long, val name: String, val icon: String? = null)
+
+/** Everything for someone's profile card in a server. */
+@Serializable
+data class ProfileCardData(
+    val user: MemberUser,
+    val serverProfile: ServerProfile = ServerProfile(),
+    val nickname: String? = null,
+    val roleIds: List<Long> = emptyList(),
+    val joinedAt: Long = 0,
+    val timeoutUntil: Long? = null,
+    val online: Boolean = false,
+    val memberSince: Long = 0,
+    val mutualServers: List<MutualServer> = emptyList(),
+    val contact: String = "none", // self, contact, requested, incoming, none
+    val canMessage: Boolean = false,
+) {
+    fun asMember() = ServerMember(user, serverProfile, nickname, roleIds, joinedAt, timeoutUntil, online)
+}
+
+/** What a profile card shows, with the server profile winning where it's filled in. */
+data class ShownProfile(
+    val name: String,
+    val displayName: String,
+    val username: String,
+    val avatar: String?,
+    val banner: String?,
+    val accent: Long?,
+    val pronouns: String,
+    val bio: String,
+    val status: String,
+    val statusEmoji: String,
+    val online: Boolean,
+)
+
+fun ServerMember.shown() = ShownProfile(
+    name = nickname?.takeIf { it.isNotBlank() } ?: user.displayName,
+    displayName = user.displayName,
+    username = user.username,
+    avatar = serverProfile.avatar ?: user.avatar,
+    banner = serverProfile.banner ?: user.banner,
+    accent = user.accentColour,
+    pronouns = serverProfile.pronouns.ifBlank { user.pronouns },
+    bio = serverProfile.bio.ifBlank { user.about },
+    status = user.customStatus,
+    statusEmoji = user.statusEmoji,
+    online = online,
+)
+
+/** Someone's picture in a server: their server avatar if they've set one. */
+val ServerMember.shownAvatar: String? get() = serverProfile.avatar ?: user.avatar

@@ -468,6 +468,23 @@ object Servers {
         runCatching { refreshServer(serverId) }
     }
 
+    // ───────────── profiles ─────────────
+
+    suspend fun profile(serverId: Long, userId: Long): ProfileCardData =
+        api.get("/api/servers/$serverId/members/$userId/profile")
+
+    /** Your profile in one server. Pass null/empty to fall back to your main profile. */
+    suspend fun updateServerProfile(serverId: Long, nickname: String?, includeNickname: Boolean, avatar: String?, banner: String?, bio: String, pronouns: String) {
+        upsert(api.patch<BantsServer>("/api/servers/$serverId/me", buildJsonObject {
+            if (includeNickname) { if (nickname.isNullOrBlank()) put("nickname", JsonNull) else put("nickname", nickname.trim()) }
+            if (avatar == null) put("avatar", JsonNull) else put("avatar", avatar)
+            if (banner == null) put("banner", JsonNull) else put("banner", banner)
+            put("bio", bio.trim())
+            put("pronouns", pronouns.trim())
+        }))
+        runCatching { loadMembers(serverId) }
+    }
+
     /** The colour of someone's most senior coloured role, for their name. */
     fun nameColour(serverId: Long, userId: Long): Long? {
         val s = servers.value[serverId] ?: return null
@@ -499,6 +516,27 @@ object Servers {
                     val uid = ev.long("userId")
                     servers.update { all -> all[sid]?.let { all + (sid to it.copy(memberCount = (it.memberCount - 1).coerceAtLeast(0))) } ?: all }
                     members.update { all -> all[sid]?.let { list -> all + (sid to list.filter { it.user.id != uid }) } ?: all }
+                }
+                "user.updated" -> {
+                    // Someone changed their main profile: refresh it in every member list.
+                    val o = ev["user"] as? JsonObject ?: return
+                    val id = o["id"]?.jsonPrimitive?.longOrNull ?: return
+                    members.update { all ->
+                        all.mapValues { (_, list) ->
+                            list.map { m ->
+                                if (m.user.id != id) m else m.copy(user = m.user.copy(
+                                    displayName = o["displayName"]?.jsonPrimitive?.contentOrNull ?: m.user.displayName,
+                                    avatar = if (o.containsKey("avatar")) o["avatar"]?.jsonPrimitive?.contentOrNull else m.user.avatar,
+                                    about = o["about"]?.jsonPrimitive?.contentOrNull ?: m.user.about,
+                                    banner = if (o.containsKey("banner")) o["banner"]?.jsonPrimitive?.contentOrNull else m.user.banner,
+                                    accentColour = if (o.containsKey("accentColour")) o["accentColour"]?.jsonPrimitive?.longOrNull else m.user.accentColour,
+                                    pronouns = o["pronouns"]?.jsonPrimitive?.contentOrNull ?: m.user.pronouns,
+                                    customStatus = o["customStatus"]?.jsonPrimitive?.contentOrNull ?: m.user.customStatus,
+                                    statusEmoji = o["statusEmoji"]?.jsonPrimitive?.contentOrNull ?: m.user.statusEmoji,
+                                ))
+                            }
+                        }
+                    }
                 }
                 "server.presence" -> {
                     val uid = ev.long("userId")

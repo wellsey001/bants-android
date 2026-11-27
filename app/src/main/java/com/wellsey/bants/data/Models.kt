@@ -14,6 +14,12 @@ data class User(
     val lastSeen: Long? = null,
     val friendCode: String? = null,
     val isAdmin: Boolean = false,
+    // Discord-style profile bits
+    val banner: String? = null,
+    val accentColour: Long? = null,
+    val pronouns: String = "",
+    val customStatus: String = "",
+    val statusEmoji: String = "",
 )
 
 @Serializable

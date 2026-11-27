@@ -2,6 +2,11 @@
 
 package com.wellsey.bants.ui
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import com.wellsey.bants.data.shownAvatar
+
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -120,6 +125,7 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
     var replyingTo by remember { mutableStateOf<ChannelMessage?>(null) }
     var editing by remember { mutableStateOf<ChannelMessage?>(null) }
     var picking by remember { mutableStateOf<ChannelMessage?>(null) }
+    var profileOf by remember { mutableStateOf<Long?>(null) }
     var threadsOpen by remember { mutableStateOf(false) }
     var pinsOpen by remember { mutableStateOf(false) }
     var loadingOlder by remember { mutableStateOf(false) }
@@ -182,7 +188,7 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
         if (channel.topic.isNotBlank()) {
             Text(channel.topic, fontSize = 13.sp, color = b.muted, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 18.dp, end = 18.dp, bottom = 8.dp))
         }
-        if (channel.type == "voice") VoiceCard(channel, server, members)
+        if (channel.type == "voice") VoiceCard(channel, server, members) { profileOf = it }
         Box(Modifier.fillMaxWidth().height(2.5.dp).background(b.outline))
 
         Box(Modifier.weight(1f)) {
@@ -215,6 +221,7 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
                             onReply = { replyingTo = it; editing = null },
                             onEdit = { editing = it; replyingTo = null; field = TextFieldValue(plainBody(it.body, members), TextRange(plainBody(it.body, members).length)) },
                             onReactMore = { picking = it },
+                            onProfile = { profileOf = it },
                             onThread = { msg ->
                                 scope.launch {
                                     runCatching { Servers.startThread(channelId, msg.body.take(40), msg.id) }
@@ -293,7 +300,7 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
                                     .padding(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Avatar(m.user.displayName, m.user.avatar, size = 26.dp, outlined = false)
+                                Avatar(m.user.displayName, m.shownAvatar, size = 26.dp, outlined = false)
                                 Spacer(Modifier.width(6.dp))
                                 Text(m.shownName(), fontWeight = FontWeight.Bold, fontSize = 14.sp, color = b.onCard)
                                 Text(" @${m.user.username}", fontSize = 13.sp, color = b.muted)
@@ -332,6 +339,7 @@ fun ChannelScreen(channelId: Long, nav: Navigator) {
         }
     }
 
+    profileOf?.let { uid -> ProfileSheet(server.id, uid, nav) { profileOf = null } }
     picking?.let { m ->
         EmojiReactionSheet(onDismiss = { picking = null }) { emoji ->
             picking = null
@@ -401,6 +409,7 @@ private fun ChannelMessageRow(
     onEdit: (ChannelMessage) -> Unit,
     onReactMore: (ChannelMessage) -> Unit,
     onThread: (ChannelMessage) -> Unit,
+    onProfile: (Long) -> Unit = {},
 ) {
     val b = LocalBants.current
     val context = LocalContext.current
@@ -437,7 +446,9 @@ private fun ChannelMessageRow(
                 .padding(start = 6.dp, end = 6.dp, top = if (grouped) 1.dp else 8.dp, bottom = 1.dp),
         ) {
             Box(Modifier.width(44.dp)) {
-                if (!grouped) Avatar(m.author?.displayName ?: "?", m.author?.avatar, size = 38.dp)
+                if (!grouped) Box(Modifier.clip(CircleShape).clickable(enabled = m.author != null) { m.author?.let { onProfile(it.id) } }) {
+                    Avatar(m.author?.displayName ?: "?", m.author?.avatar, size = 38.dp)
+                }
             }
             Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {
@@ -460,7 +471,7 @@ private fun ChannelMessageRow(
                             fontFamily = Bricolage, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp,
                             color = colour?.let { Color(0xFF000000 or it) } ?: b.onCard,
                             maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false),
+                            modifier = Modifier.weight(1f, fill = false).clickable(enabled = m.author != null) { m.author?.let { onProfile(it.id) } },
                         )
                         if (m.author?.id == server.ownerId) Text(" 👑", fontSize = 13.sp)
                         Spacer(Modifier.width(8.dp))
@@ -650,7 +661,7 @@ private fun PinsDialog(channel: ServerChannel, members: List<ServerMember>, onDi
 
 /** Top of a voice channel's chat: who's in there, and Join / Open / Leave. */
 @Composable
-private fun VoiceCard(channel: ServerChannel, server: BantsServer, members: List<ServerMember>) {
+private fun VoiceCard(channel: ServerChannel, server: BantsServer, members: List<ServerMember>, onProfile: (Long) -> Unit) {
     val b = LocalBants.current
     val context = LocalContext.current
     val call by com.wellsey.bants.calls.CallManager.state.collectAsState()
@@ -692,7 +703,7 @@ private fun VoiceCard(channel: ServerChannel, server: BantsServer, members: List
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 here.forEach { v ->
                     val m = members.firstOrNull { it.user.id == v.id }
-                    Avatar(m?.user?.displayName ?: "?", m?.user?.avatar, size = 34.dp)
+                    Box(Modifier.clip(CircleShape).clickable { onProfile(v.id) }) { Avatar(m?.user?.displayName ?: "?", m?.shownAvatar, size = 34.dp) }
                 }
             }
         }

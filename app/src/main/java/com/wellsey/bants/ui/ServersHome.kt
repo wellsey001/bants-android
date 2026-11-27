@@ -1,5 +1,10 @@
 package com.wellsey.bants.ui
 
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
+import androidx.compose.material.icons.filled.Badge
+import com.wellsey.bants.data.shownAvatar
+
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -321,6 +326,7 @@ fun ServerScreen(serverId: Long, nav: Navigator) {
     val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf(false) }
     var inviting by remember { mutableStateOf(false) }
+    var profileOf by remember { mutableStateOf<Long?>(null) }
     var creatingIn by remember { mutableStateOf<Long?>(null) }
     var creating by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<ServerChannel?>(null) }
@@ -355,6 +361,7 @@ fun ServerScreen(serverId: Long, nav: Navigator) {
                     if (perms.has(Perm.MANAGE_SERVER) || perms.has(Perm.MANAGE_ROLES)) {
                         DropdownMenuItem(text = { Text("Server settings") }, leadingIcon = { Icon(Icons.Default.Settings, null) }, onClick = { menu = false; nav.go(Screen.ServerSettings(serverId)) })
                     }
+                    DropdownMenuItem(text = { Text("Edit server profile") }, leadingIcon = { Icon(Icons.Default.Badge, null) }, onClick = { menu = false; nav.go(Screen.ServerProfile(serverId)) })
                     DropdownMenuItem(text = { Text("Mark as read") }, leadingIcon = { Icon(Icons.Default.DoneAll, null) }, onClick = {
                         menu = false
                         scope.launch { runCatching { Servers.markServerRead(serverId) }.onFailure { toast(context, it.message) } }
@@ -381,7 +388,7 @@ fun ServerScreen(serverId: Long, nav: Navigator) {
                 item { Text(s.description, color = b.muted, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)) }
             }
             items(top, key = { it.id }) { c ->
-                ChannelRow(c, allMembers[serverId].orEmpty(), onLongClick = if (perms.has(Perm.MANAGE_CHANNELS)) ({ editing = c }) else null) { open(c) }
+                ChannelRow(c, allMembers[serverId].orEmpty(), onProfile = { profileOf = it }, onLongClick = if (perms.has(Perm.MANAGE_CHANNELS)) ({ editing = c }) else null) { open(c) }
             }
             categories.forEach { cat ->
                 val kids = s.channels.filter { it.parentId == cat.id }.sortedBy { it.position }
@@ -409,7 +416,7 @@ fun ServerScreen(serverId: Long, nav: Navigator) {
                     }
                 }
                 if (!shut) items(kids, key = { it.id }) { c ->
-                    ChannelRow(c, allMembers[serverId].orEmpty(), onLongClick = if (perms.has(Perm.MANAGE_CHANNELS)) ({ editing = c }) else null) { open(c) }
+                    ChannelRow(c, allMembers[serverId].orEmpty(), onProfile = { profileOf = it }, onLongClick = if (perms.has(Perm.MANAGE_CHANNELS)) ({ editing = c }) else null) { open(c) }
                 }
             }
         }
@@ -417,6 +424,7 @@ fun ServerScreen(serverId: Long, nav: Navigator) {
     }
 
     if (inviting) InviteDialog(s) { inviting = false }
+    profileOf?.let { uid -> ProfileSheet(serverId, uid, nav) { profileOf = null } }
     if (creating) CreateChannelDialog(s, creatingIn) { creating = false }
     editing?.let { c -> EditChannelDialog(c) { editing = null } }
     if (confirm == "leave") ConfirmDialog("Leave ${s.name}?", "You'll need a new invite to get back in.", "Leave", onDismiss = { confirm = null }) {
@@ -469,15 +477,15 @@ fun channelIcon(c: ServerChannel): ImageVector = when (c.type) {
 }
 
 @Composable
-private fun ChannelRow(c: ServerChannel, members: List<ServerMember>, onLongClick: (() -> Unit)?, onClick: () -> Unit) {
+private fun ChannelRow(c: ServerChannel, members: List<ServerMember>, onProfile: (Long) -> Unit, onLongClick: (() -> Unit)?, onClick: () -> Unit) {
     Column {
         ChannelRowInner(c, onLongClick, onClick)
         // Who's in a voice channel, Discord-style, under its name.
         c.voiceMembers.forEach { v ->
             val m = members.firstOrNull { it.user.id == v.id }
             val b = LocalBants.current
-            Row(Modifier.padding(start = 40.dp, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                Avatar(m?.user?.displayName ?: "?", m?.user?.avatar, size = 24.dp, outlined = false)
+            Row(Modifier.padding(start = 34.dp).clip(RoundedCornerShape(10.dp)).clickable { onProfile(v.id) }.padding(start = 6.dp, top = 2.dp, bottom = 2.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Avatar(m?.user?.displayName ?: "?", m?.shownAvatar, size = 24.dp, outlined = false)
                 Spacer(Modifier.width(8.dp))
                 Text(m?.shownName() ?: "Someone", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = b.onCard, modifier = Modifier.weight(1f, fill = false))
                 if (v.screen) {

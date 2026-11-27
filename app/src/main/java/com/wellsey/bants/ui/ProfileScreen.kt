@@ -123,7 +123,8 @@ fun ProfileScreen(nav: Navigator) {
                 shape = FieldShape,
                 colors = chunkyFieldColors(),
                 value = about,
-                onValueChange = { about = it.take(140) },
+                onValueChange = { about = it.take(190) },
+                minLines = 2,
                 label = { Text("About") },
                 placeholder = { Text("Something cheeky") },
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
@@ -144,6 +145,7 @@ fun ProfileScreen(nav: Navigator) {
                 busy = saving,
                 modifier = Modifier.fillMaxWidth(),
             )
+            ProfileExtras()
 
             if (me?.isAdmin == true) {
                 ChunkyButton(

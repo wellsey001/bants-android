@@ -1,5 +1,7 @@
 package com.wellsey.bants.ui
 
+import com.wellsey.bants.data.shownAvatar
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -119,7 +121,7 @@ fun ServerMembersScreen(serverId: Long, nav: Navigator) {
             }
         }
     }
-    selected?.let { m -> MemberDialog(s, m) { selected = null } }
+    selected?.let { m -> ProfileSheet(s.id, m.user.id, nav) { selected = null } }
 }
 
 @Composable
@@ -131,7 +133,7 @@ private fun MemberRow(s: BantsServer, m: ServerMember, onClick: () -> Unit) {
         Modifier.fillMaxWidth().bouncyClickable(squash = 0.03f, onClick = onClick).padding(horizontal = 6.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Avatar(m.user.displayName, m.user.avatar, size = 42.dp, online = m.online)
+        Avatar(m.user.displayName, m.shownAvatar, size = 42.dp, online = m.online)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -147,7 +149,7 @@ private fun MemberRow(s: BantsServer, m: ServerMember, onClick: () -> Unit) {
 private val timeouts = listOf(10 to "10 mins", 60 to "1 hour", 24 * 60 to "1 day", 7 * 24 * 60 to "1 week")
 
 @Composable
-private fun MemberDialog(s: BantsServer, m: ServerMember, onDismiss: () -> Unit) {
+internal fun MemberDialog(s: BantsServer, m: ServerMember, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val b = LocalBants.current

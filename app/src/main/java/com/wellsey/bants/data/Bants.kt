@@ -321,6 +321,17 @@ object Bants {
         setMe(u)
     }
 
+    /** Saves any profile fields you pass (pronouns, customStatus, banner, accentColour…). */
+    suspend fun updateProfileFields(fields: JsonObject) {
+        setMe(call { api.patch<User>("/api/me", fields) })
+    }
+
+    /** Uploads a picture (shrunk to [maxSide]) and returns its media id. */
+    suspend fun uploadImage(uri: Uri, maxSide: Int = 1600): String {
+        val (bytes, mime) = withContext(Dispatchers.IO) { compressImage(uri, maxSide = maxSide) }
+        return upload(bytes.toRequestBody(mime.toMediaType()), "image.jpg").id
+    }
+
     suspend fun uploadAvatar(uri: Uri) {
         val media = uploadPhoto(uri)
         val u = call { api.patch<User>("/api/me", buildJsonObject { put("avatar", media.id) }) }
