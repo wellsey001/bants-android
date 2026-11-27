@@ -1,5 +1,7 @@
 package com.wellsey.bants.ui
 
+import androidx.compose.foundation.horizontalScroll
+
 import androidx.compose.material.icons.filled.GraphicEq
 
 import androidx.compose.material.icons.filled.Search
@@ -773,7 +775,7 @@ private fun EditChannelDialog(c: ServerChannel, nav: Navigator, onDismiss: () ->
                 }
                 if (c.type == "voice") {
                     Text("Voice quality", fontWeight = FontWeight.Bold)
-                    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf(32 to "32 kbps", 64 to "64", 96 to "96", 128 to "128", 256 to "256 studio").forEach { (k, l) -> ChunkyChip(l, bitrate == k) { bitrate = k } }
                     }
                     Text("Higher sounds better but uses more data for everyone in here.", fontSize = 12.sp, color = LocalBants.current.muted)
