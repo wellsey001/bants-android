@@ -163,6 +163,7 @@ fun ProfileScreen(nav: Navigator) {
                 content = LocalBants.current.onCard,
                 modifier = Modifier.fillMaxWidth(),
             )
+            AppLooksSection()
             ChunkyButton(
                 "Sounds & vibration",
                 onClick = { nav.go(Screen.Sounds) },

@@ -666,6 +666,7 @@ private fun ChannelMessageRow(
                             fallback = colour?.let { Color(0xFF000000 or it) } ?: b.onCard,
                             modifier = Modifier.weight(1f, fill = false).clickable(enabled = m.author != null && m.author.bot != true) { m.author?.let { onProfile(it.id) } },
                         )
+                        RoleIconBadge(m.author?.let { Servers.roleIcon(server.id, it.id) })
                         if (m.author?.id == server.ownerId) Text(" 👑", fontSize = 13.sp)
                         if (m.author?.bot == true) Text(" BOT ", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color.White,
                             modifier = Modifier.padding(start = 4.dp).background(BantsPurple, RoundedCornerShape(4.dp)).padding(horizontal = 3.dp))

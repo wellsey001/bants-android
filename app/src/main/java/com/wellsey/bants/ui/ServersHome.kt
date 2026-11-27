@@ -414,6 +414,7 @@ fun ServerScreen(serverId: Long, nav: Navigator) {
             Modifier.weight(1f),
             contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 40.dp),
         ) {
+            if (s.banner != null) item { ServerBanner(s) }
             if (s.description.isNotBlank()) {
                 item { Text(s.description, color = b.muted, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)) }
             }
@@ -605,6 +606,13 @@ private fun AddServerDialog(onDismiss: () -> Unit, onDone: (BantsServer) -> Unit
     var joining by remember { mutableStateOf(false) }
     var text by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    var preview by remember { mutableStateOf<com.wellsey.bants.data.InvitePreview?>(null) }
+    LaunchedEffect(text, joining) {
+        preview = null
+        if (!joining || text.isBlank()) return@LaunchedEffect
+        kotlinx.coroutines.delay(400)
+        preview = runCatching { Servers.previewInvite(text) }.getOrNull()
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (joining) "Join a server" else "Start a server", fontFamily = Bricolage, fontWeight = FontWeight.ExtraBold) },
@@ -623,6 +631,7 @@ private fun AddServerDialog(onDismiss: () -> Unit, onDone: (BantsServer) -> Unit
                     shape = FieldShape,
                     colors = chunkyFieldColors(),
                 )
+                preview?.let { InviteCard(it) }
                 Text(
                     if (joining) "Paste the link someone sent you." else "You'll get #general and a voice channel to start with. You can add more later.",
                     fontSize = 13.sp,
@@ -673,6 +682,7 @@ private fun InviteDialog(s: BantsServer, onDismiss: () -> Unit) {
                     Switch(checked = forever, onCheckedChange = { forever = it })
                 }
                 if (!forever) Text("Works for 7 days.", fontSize = 13.sp, color = LocalBants.current.muted)
+                if (s.vanity != null) Text("Or your server's own link, which never runs out: ${s.vanity}", fontSize = 13.sp, fontWeight = FontWeight.Bold)
             }
         },
         confirmButton = {

@@ -15,6 +15,8 @@ data class ServerRole(
     val hoist: Boolean = false,
     val mentionable: Boolean = false,
     val isDefault: Boolean = false,
+    val iconEmoji: String? = null,
+    val iconMedia: String? = null,
 )
 
 @Serializable
@@ -89,6 +91,9 @@ data class BantsServer(
     val welcome: String = "",
     val requireRules: Boolean = false,
     val rulesAccepted: Boolean = true,
+    /** The server's own invite name, which never runs out. */
+    val vanity: String? = null,
+    val inviteBackground: String? = null,
 )
 
 @Serializable
@@ -209,7 +214,7 @@ data class ServerMember(
 )
 
 @Serializable
-data class InviteServer(val id: Long, val name: String, val icon: String? = null, val description: String = "")
+data class InviteServer(val id: Long, val name: String, val icon: String? = null, val description: String = "", val banner: String? = null, val inviteBackground: String? = null)
 
 @Serializable
 data class InvitePreview(val code: String, val server: InviteServer, val memberCount: Int = 0, val onlineCount: Int = 0)

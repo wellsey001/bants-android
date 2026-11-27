@@ -102,6 +102,7 @@ object Bants {
     fun init(context: Context) {
         appContext = context.applicationContext
         session = Session(appContext)
+        com.wellsey.bants.ui.Looks.init(appContext)
         api = Api(session)
         realtime = Realtime(api, session, scope)
         store = Store(appContext)

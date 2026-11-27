@@ -363,6 +363,16 @@ object Servers {
             put("description", description.trim())
         }))
 
+    /** Icon, banner and invite background (GIFs keep moving), and the server's own invite link. */
+    suspend fun updateLooks(serverId: Long, icon: String?, banner: String?, inviteBackground: String?, vanity: String) =
+        upsert(api.patch<BantsServer>("/api/servers/$serverId", buildJsonObject {
+            if (icon == null) put("icon", JsonNull) else put("icon", icon)
+            if (banner == null) put("banner", JsonNull) else put("banner", banner)
+            if (inviteBackground == null) put("inviteBackground", JsonNull) else put("inviteBackground", inviteBackground)
+            val v = vanity.trim().lowercase()
+            if (v.isEmpty()) put("vanity", JsonNull) else put("vanity", v)
+        }))
+
     suspend fun setMuted(serverId: Long, muted: Boolean) =
         upsert(api.patch<BantsServer>("/api/servers/$serverId/me", buildJsonObject { put("muted", muted) }))
 
@@ -479,8 +489,10 @@ object Servers {
         return r
     }
 
-    suspend fun updateRole(serverId: Long, roleId: Long, name: String?, colour: Long?, permissions: Long, hoist: Boolean, mentionable: Boolean) {
+    suspend fun updateRole(serverId: Long, roleId: Long, name: String?, colour: Long?, permissions: Long, hoist: Boolean, mentionable: Boolean, iconEmoji: String? = null, iconMedia: String? = null) {
         api.patch<ServerRole>("/api/roles/$roleId", buildJsonObject {
+            if (iconMedia != null) { put("iconMedia", iconMedia); put("iconEmoji", JsonNull) }
+            else { put("iconMedia", JsonNull); if (iconEmoji.isNullOrBlank()) put("iconEmoji", JsonNull) else put("iconEmoji", iconEmoji.trim()) }
             if (name != null) put("name", name.trim())
             if (colour == null) put("colour", JsonNull) else put("colour", colour)
             put("permissions", permissions)
@@ -641,6 +653,13 @@ object Servers {
         })
         putMessages(channelId, listOf(m))
         file.delete()
+    }
+
+    /** Someone's most senior role that has an icon (shown after their name). */
+    fun roleIcon(serverId: Long, userId: Long): ServerRole? {
+        val s = servers.value[serverId] ?: return null
+        val roleIds = members.value[serverId]?.firstOrNull { it.user.id == userId }?.roleIds ?: return null
+        return s.roles.filter { it.id in roleIds && (it.iconEmoji != null || it.iconMedia != null) }.maxByOrNull { it.position }
     }
 
     /** The colour of someone's most senior coloured role, for their name. */

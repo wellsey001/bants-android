@@ -137,7 +137,8 @@ private fun MemberRow(s: BantsServer, m: ServerMember, onClick: () -> Unit) {
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(m.shownName(), fontFamily = Bricolage, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = nameColour ?: b.onCard, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(m.shownName(), fontFamily = Bricolage, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = nameColour ?: b.onCard, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                RoleIconBadge(roles.firstOrNull { it.iconEmoji != null || it.iconMedia != null })
                 if (m.user.id == s.ownerId) Text(" 👑", fontSize = 13.sp)
                 if (m.timeoutUntil != null) Text(" ⏳", fontSize = 13.sp)
             }
@@ -345,6 +346,7 @@ fun ServerSettingsScreen(serverId: Long, nav: Navigator) {
                     }, enabled = name.isNotBlank() && (name != s.name || description != s.description), modifier = Modifier.fillMaxWidth())
                 }
             }
+            if (canEdit) item { ServerLooksSection(s) }
             if (s.permissions.has(Perm.MANAGE_ROLES)) {
                 item { ActionRow(Icons.Default.Shield, "Roles", "Who can do what") { nav.go(Screen.ServerRoles(s.id)) } }
             }
@@ -424,6 +426,8 @@ fun RoleEditScreen(serverId: Long, roleId: Long, nav: Navigator) {
     var perms by remember(roleId) { mutableLongStateOf(role.permissions) }
     var hoist by remember(roleId) { mutableStateOf(role.hoist) }
     var mentionable by remember(roleId) { mutableStateOf(role.mentionable) }
+    var iconEmoji by remember(roleId) { mutableStateOf(role.iconEmoji.orEmpty()) }
+    var iconMedia by remember(roleId) { mutableStateOf(role.iconMedia) }
     var confirmDelete by remember { mutableStateOf(false) }
     val mine = s.permissions
 
@@ -431,7 +435,7 @@ fun RoleEditScreen(serverId: Long, roleId: Long, nav: Navigator) {
         ChunkyTopBar(if (role.isDefault) "@everyone" else "Edit role", nav) {
             ChunkyIconButton(Icons.Default.Check, "Save", {
                 scope.launch {
-                    runCatching { Servers.updateRole(s.id, role.id, if (role.isDefault) null else name, colour, perms, hoist, mentionable) }
+                    runCatching { Servers.updateRole(s.id, role.id, if (role.isDefault) null else name, colour, perms, hoist, mentionable, iconEmoji, iconMedia) }
                         .onSuccess { nav.back() }
                         .onFailure { toast(context, it.message) }
                 }
@@ -441,6 +445,7 @@ fun RoleEditScreen(serverId: Long, roleId: Long, nav: Navigator) {
         LazyColumn(Modifier.fillMaxSize().navigationBarsPadding(), contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (!role.isDefault) {
                 item { OutlinedTextField(value = name, onValueChange = { name = it.take(100) }, label = { Text("Role name") }, singleLine = true, shape = FieldShape, colors = chunkyFieldColors(), modifier = Modifier.fillMaxWidth()) }
+                item { RoleIconPicker(iconEmoji, iconMedia, { iconEmoji = it }, { iconMedia = it }) }
                 item {
                   Column {
                     Text("Colour", fontWeight = FontWeight.Bold)
