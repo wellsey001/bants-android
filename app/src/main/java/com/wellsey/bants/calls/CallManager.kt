@@ -499,9 +499,8 @@ object CallManager {
             .setUseHardwareAcousticEchoCanceler(sess.callEcho)
             .setUseHardwareNoiseSuppressor(sess.callNoise != "off")
             // Strong: also silence the mic between words (keyboards, clicks, the telly).
-            .setAudioBufferCallback { buffer, _, _, _, bytesRead, captureTimeNs ->
-                if (Bants.session.callNoise == "strong") gate.process(buffer, bytesRead)
-                captureTimeNs
+            .setAudioRecordDataCallback { _, _, _, audioBuffer ->
+                if (Bants.session.callNoise == "strong") gate.process(audioBuffer, audioBuffer.remaining())
             }
             .createAudioDeviceModule()
         factoryKey = key
