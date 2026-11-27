@@ -316,12 +316,29 @@ object CallManager {
             runCatching { p.camTx?.sender?.setTrack(track, false) }
             applyEncodings(p)
         }
+        if (track != null) renegotiateAll()
     }
 
     private fun fillScreenSlot(track: VideoTrack?) {
         peers.values.forEach { p ->
             runCatching { p.screenTx?.sender?.setTrack(track, false) }
             applyEncodings(p)
+        }
+        if (track != null) renegotiateAll()
+    }
+
+    /**
+     * Turning a camera or screen on: swapping the track in is usually enough, but some phones'
+     * WebRTC won't start sending on a slot that was empty when the call connected, which left the
+     * other person looking at a black tile. A fresh offer/answer gets the video flowing everywhere.
+     */
+    private fun renegotiateAll() {
+        peers.values.forEach { p ->
+            scope.launch {
+                delay(300)
+                val conn = p.pc ?: return@launch
+                if (conn.signalingState() == PeerConnection.SignalingState.STABLE) runCatching { makeOffer(p.userId) }
+            }
         }
     }
 
@@ -805,6 +822,11 @@ object CallManager {
         when (data["type"]?.jsonPrimitive?.contentOrNull) {
             "offer" -> scope.launch {
                 val sdp = data["sdp"]?.jsonPrimitive?.contentOrNull ?: return@launch
+                // Both sides offered at once: the one with the lower id wins, the other backs down.
+                if (conn.signalingState() == PeerConnection.SignalingState.HAVE_LOCAL_OFFER) {
+                    if (Bants.myId < p.userId) return@launch
+                    conn.awaitSetLocal(SessionDescription(SessionDescription.Type.ROLLBACK, ""))
+                }
                 conn.awaitSetRemote(SessionDescription(SessionDescription.Type.OFFER, sdp))
                 onRemoteDescription(p)
                 val voice = state.value?.voiceChannelId != null
