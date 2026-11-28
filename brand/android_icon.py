@@ -1,5 +1,5 @@
 import math, sys
-sys.path.insert(0, '/home/claude/bants-logo')
+sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
 from icon import TOP, BOT, TILT, P, INK, Y, W, PINK, full, mark
 
 # ── foreground layer for the adaptive icon (108 x 108 dp) ──
@@ -35,7 +35,8 @@ def foreground_xml():
     body += p("M107.5,70 A7.5,7.5 0 0,0 122.5,70 Z", fill=W)
     body += p(circ(93.2, 73, 3.3), fill=INK) + p(circ(118.2, 73, 3.3), fill=INK)
     body += p("M81.5,70 H98.5 M106.5,70 H123.5", stroke=INK, w=3, cap="round")
-    body += p(ell(137, 132, 6.5, 3.6), fill=PINK, alpha="0.85")
+    body += p("M104.5 130.2 C104 140.5 108 145.5 112 145.5 C116.5 145.5 120 140 118.6 127.4 Z", fill=PINK, stroke=INK, w=1.6)
+    body += p("M111.6 132.5 Q112.2 136.5 111.8 140", stroke="#C2185B", w=1.8, cap="round")
     body += p("M90,129 Q111,136.5 130,119", stroke=W, w=6.5, cap="round")
     body += p("M127.5,113.5 Q133.5,117 131.5,124", stroke=W, w=3.5, cap="round")
     return f'''<?xml version="1.0" encoding="utf-8"?>

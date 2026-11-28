@@ -18,8 +18,9 @@ def face():
         f'<path d="M107.5 70 A7.5 7.5 0 0 0 122.5 70 Z" fill="{W}"/>'
         f'<circle cx="93.2" cy="73" r="3.3" fill="{INK}"/><circle cx="118.2" cy="73" r="3.3" fill="{INK}"/>'
         f'<path d="M81.5 70 H98.5 M106.5 70 H123.5" stroke="{INK}" stroke-width="3" stroke-linecap="round"/>'
-        # lopsided smirk with a dimple, and a bit of colour in the cheek
-        f'<ellipse cx="137" cy="132" rx="6.5" ry="3.6" fill="{PINK}" opacity="0.85"/>'
+        # lopsided smirk with a dimple, and the tongue poking out
+        f'<path d="M104.5 130.2 C104 140.5 108 145.5 112 145.5 C116.5 145.5 120 140 118.6 127.4 Z" fill="{PINK}" stroke="{INK}" stroke-width="1.6" stroke-linejoin="round"/>'
+        f'<path d="M111.6 132.5 Q112.2 136.5 111.8 140" stroke="#C2185B" stroke-width="1.8" fill="none" stroke-linecap="round"/>'
         f'<path d="M90 129 Q111 136.5 130 119" stroke="{W}" stroke-width="6.5" fill="none" stroke-linecap="round"/>'
         f'<path d="M127.5 113.5 Q133.5 117 131.5 124" stroke="{W}" stroke-width="3.5" fill="none" stroke-linecap="round"/>'
     )
