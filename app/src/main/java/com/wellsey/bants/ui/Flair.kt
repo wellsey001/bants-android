@@ -101,7 +101,7 @@ fun DecoratedAvatar(name: String, media: String?, size: Dp, decoration: String?,
         val top = when (decoration) { "crown" -> "👑"; "halo" -> "😇"; "cat" -> "🐱"; else -> null }
         if (top != null) Text(top, fontSize = (size.value * 0.36f).sp, modifier = Modifier.align(Alignment.TopCenter).offset(y = -size * 0.22f))
         val float = when (decoration) { "hearts" -> "💖"; "snow" -> "❄️"; "fire" -> "🔥"; else -> null }
-        if (float != null) Text(float, fontSize = (size.value * 0.28f).sp, modifier = Modifier.align(Alignment.BottomEnd).offset(y = -(pulse * 3).dp))
+        if (float != null) Text(float, fontSize = (size.value * 0.28f).sp, modifier = Modifier.align(Alignment.TopEnd).offset(x = size * 0.04f, y = -size * 0.04f - (pulse * 3).dp))
     }
 }
 
