@@ -64,6 +64,11 @@ class Session(context: Context) {
         set(value) = prefs.edit().putString("callBlur", value).apply()
 
     /** The picture behind you when the camera background is "image" (a file in the app's storage). */
+    /** Chimes when people join or leave a call or voice channel. */
+    var voiceChimes: Boolean
+        get() = prefs.getBoolean("voiceChimes", true)
+        set(value) = prefs.edit().putBoolean("voiceChimes", value).apply()
+
     var callBgImage: String?
         get() = prefs.getString("callBgImage", null)
         set(value) = prefs.edit().putString("callBgImage", value).apply()

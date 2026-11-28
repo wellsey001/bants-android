@@ -212,6 +212,7 @@ object CallManager {
 
     fun init(context: Context) {
         appContext = context.applicationContext
+        Chimes.init(appContext)
     }
 
     val inCall: Boolean get() = state.value != null && state.value?.status != CallStatus.Ended
@@ -712,6 +713,8 @@ object CallManager {
                 )
                 if (voice && s.muted) sendVoiceState()
                 if (others.isNotEmpty()) Ringer.stop()
+                // You're in (your own join sound plays instead, if you've picked one).
+                if (if (voice) com.wellsey.bants.data.Bants.me.value?.joinSound == null else others.isNotEmpty()) Chimes.join()
                 others.forEach { p ->
                     scope.launch {
                         createPeer(p.id)
@@ -723,6 +726,7 @@ object CallManager {
                 if (s == null || s.callId != callId) return
                 val p = person(ev["user"]?.jsonObject) ?: return
                 Ringer.stop()
+                if (ev["customSound"]?.jsonPrimitive?.booleanOrNull != true) Chimes.join()
                 state.value = s.copy(
                     participants = s.participants.filter { it.id != p.id } + p,
                     status = if (s.status == CallStatus.Active) CallStatus.Active else CallStatus.Connecting,
@@ -733,6 +737,7 @@ object CallManager {
             "call.participant.left" -> {
                 if (s == null || s.callId != callId) return
                 val id = ev["userId"]?.jsonPrimitive?.longOrNull ?: return
+                if (s.participants.any { it.id == id } && ev["customSound"]?.jsonPrimitive?.booleanOrNull != true) Chimes.leave()
                 closePeer(id)
                 state.value = state.value?.let { cur ->
                     val left = cur.participants.filter { it.id != id }
@@ -1014,6 +1019,8 @@ object CallManager {
         val s = state.value ?: return
         if (s.status == CallStatus.Ended) return
         val anyConnected = peers.values.any { it.connected }
+        // A 1:1 call just connected: the same chime as joining a voice channel.
+        if (anyConnected && !s.group && s.answeredAt == null) Chimes.join()
         state.value = when {
             anyConnected -> s.copy(status = CallStatus.Active, answeredAt = s.answeredAt ?: System.currentTimeMillis(), reconnecting = false)
             s.status == CallStatus.Active -> s.copy(reconnecting = true)
@@ -1130,6 +1137,7 @@ object CallManager {
         Ringer.stop()
         IncomingCallNotification.cancel(appContext)
         val s = state.value
+        if (s != null && s.status != CallStatus.Ended && (s.voiceChannelId != null || s.answeredAt != null)) Chimes.leave()
         scope.launch(Dispatchers.Default) { releaseMedia() }
         resetAudio()
         CallService.stop(appContext)

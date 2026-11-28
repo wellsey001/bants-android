@@ -149,6 +149,13 @@ fun CallSettingsScreen(nav: Navigator) {
             )
             Text("Both sides have to support a format to use it, otherwise the call quietly uses VP8.", style = MaterialTheme.typography.bodySmall, color = b.muted)
 
+            Heading("JOIN AND LEAVE")
+            var chimes by remember { mutableStateOf(Bants.session.voiceChimes) }
+            Toggle("Join and leave chimes", "Play a chime when people join or leave a call or voice channel", chimes) {
+                chimes = it
+                Bants.session.voiceChimes = it
+            }
+
             Heading("YOUR VOICE CHANNEL SOUNDS")
             listOf("joinSound" to "When you join", "leaveSound" to "When you leave").forEach { (key, label) ->
                 val current = if (key == "joinSound") me?.joinSound else me?.leaveSound
