@@ -771,6 +771,7 @@ object CallManager {
     private fun endedText(reason: String?, s: CallUi) = when (reason) {
         "removed" -> "You were removed from the voice channel"
         "channel_deleted" -> "The voice channel was deleted"
+        "elsewhere" -> "You joined from another device"
         "empty" -> "Left voice"
         "declined" -> if (s.group) "Nobody picked up" else "${s.peerName} is busy"
         "busy" -> "${s.peerName} is on another call"
